@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>jsonschema.zig Layered Web API</title>
+  <style>
+    :root {
+      --bg: #f7f8fa;
+      --card: #fff;
+      --text: #17202a;
+      --muted: #647080;
+      --line: #dce2ea;
+      --soft: #edf6f4;
+      --accent: #0d6b61;
+      --code: #111820;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    main {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+
+    h1 {
+      font-size: 32px;
+      line-height: 1.15;
+      margin-bottom: 10px;
+    }
+
+    h2 {
+      font-size: 20px;
+      margin: 28px 0 12px;
+    }
+
+    h3 {
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+
+    p, li {
+      color: var(--muted);
+    }
+
+    .lede {
+      max-width: 820px;
+      font-size: 17px;
+    }
+
+    .note {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border: 1px solid #bcdcd6;
+      border-radius: 8px;
+      background: var(--soft);
+    }
+
+    .note strong {
+      color: var(--accent);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      min-height: 100%;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--card);
+    }
+
+    .label {
+      display: inline-block;
+      margin-bottom: 10px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--soft);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .score {
+      margin: 10px 0 12px;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    ul {
+      margin: 8px 0 0;
+      padding-left: 18px;
+    }
+
+    details {
+      margin-top: 14px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+
+    summary {
+      cursor: pointer;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    pre {
+      overflow-x: auto;
+      margin: 10px 0 0;
+      padding: 12px;
+      border-radius: 7px;
+      background: var(--code);
+      color: #eef3f7;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .mini {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .footer {
+      margin-top: 28px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 900px) {
+      .grid, .mini { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Layered Web API for jsonschema.zig</h1>
+    <p class="lede">
+      Three layers: start as close to <code>std.http.Server</code> as possible,
+      then opt into route registration for OpenAPI, then opt into full request
+      and response contracts for the most declarative API.
+    </p>
+
+    <div class="note">
+      <strong>Rule:</strong>
+      OpenAPI generation requires route registration. Helper-only usage can
+      validate requests and responses, but it does not provide enough route
+      metadata to produce an OpenAPI document.
+    </div>
+
+    <h2>Supported Layers</h2>
+    <section class="grid">
+      <article class="card">
+        <span class="label">Layer 1</span>
+        <h3>Helper Functions</h3>
+        <p>Mix validation into existing stdlib handlers.</p>
+        <p class="score">Use for: easiest migration from raw stdlib.</p>
+        <ul>
+          <li>Caller keeps the accept loop, routing, and raw request.</li>
+          <li>Helpers read, parse, validate, and respond with JSON.</li>
+          <li>No OpenAPI without additional route registration.</li>
+        </ul>
+        <details open>
+          <summary>Code</summary>
+          <pre><code>if (req.head.method == .POST and web.pathEql(&req, "/users")) {
+    const input = try web.jsonBody(CreateUser, arena, &req, .{});
+    const user = try createUser(&store, input);
+    return web.respondJson(User, arena, &req, .created, user, .{});
+}</code></pre>
+        </details>
+      </article>
+
+      <article class="card">
+        <span class="label">Layer 2</span>
+        <h3>Route Table + Markers</h3>
+        <p>Register routes and infer schemas from handler signatures.</p>
+        <p class="score">Use for: FastAPI-like ergonomics and OpenAPI.</p>
+        <ul>
+          <li>Method and path are explicit.</li>
+          <li>Body, status, and response schema come from marker types.</li>
+          <li>Route table is the source for OpenAPI generation.</li>
+        </ul>
+        <details open>
+          <summary>Code</summary>
+          <pre><code>const Api = web.Api(.{
+    web.post("/users", createUser),
+});
+
+fn createUser(ctx: *Ctx, body: web.Body(CreateUser)) !web.Created(User) {
+    return .{ .value = try ctx.store.create(body.value) };
+}</code></pre>
+        </details>
+      </article>
+
+      <article class="card">
+        <span class="label">Layer 3</span>
+        <h3>Request/Response Contracts</h3>
+        <p>Explicit operation types for body, query, path, success, and errors.</p>
+        <p class="score">Use for: complete OpenAPI accuracy.</p>
+        <ul>
+          <li>Best for multiple responses and error bodies.</li>
+          <li>More verbose, but fully declarative.</li>
+          <li>Can still dispatch to ordinary handler functions.</li>
+        </ul>
+        <details open>
+          <summary>Code</summary>
+          <pre><code>const CreateUserRequest = web.Request(.{
+    .body = CreateUser,
+});
+
+const CreateUserResponse = web.Response(.{
+    web.case(.created, User),
+    web.case(.bad_request, Problem),
+    web.case(.unprocessable_entity, ValidationProblem),
+});
+
+const Api = web.Api(.{
+    web.post("/users", createUser, .{
+        .request = CreateUserRequest,
+        .response = CreateUserResponse,
+    }),
+});</code></pre>
+        </details>
+      </article>
+    </section>
+
+    <h2>Comptime OpenAPI</h2>
+    <section class="mini">
+      <article class="card">
+        <h3>What can be built at comptime</h3>
+        <ul>
+          <li>Route method/path/status metadata from Layer 2 or 3.</li>
+          <li>Request and response schemas from Zig types.</li>
+          <li>OpenAPI operation shapes from handler or contract types.</li>
+          <li>Compile errors for unsupported route or schema shapes.</li>
+        </ul>
+      </article>
+      <article class="card">
+        <h3>What stays runtime</h3>
+        <ul>
+          <li>Network I/O and <code>std.http.Server.Request</code> handling.</li>
+          <li>Reading request bodies with size limits.</li>
+          <li>Parsing and validating actual request/response values.</li>
+          <li>Serving the generated OpenAPI JSON or Swagger UI route.</li>
+        </ul>
+      </article>
+    </section>
+
+    <h2>Base Model Equivalent</h2>
+    <section class="mini">
+      <article class="card">
+        <h3>Zig has no superclasses</h3>
+        <p>
+          Models stay plain structs. Shared behavior is expressed with
+          declarations, composition, and generic type factories instead of
+          inheritance.
+        </p>
+        <details open>
+          <summary>Model metadata</summary>
+          <pre><code>const CreateUser = struct {
+    name: []const u8,
+
+    pub const jsonschema = .{
+        .fields = .{
+            .name = .{ .minLength = 1 },
+        },
+    };
+};</code></pre>
+        </details>
+      </article>
+
+      <article class="card">
+        <h3>Use contract wrappers</h3>
+        <p>
+          Request and response wrappers act like FastAPI/Pydantic base models:
+          they attach HTTP meaning to ordinary Zig structs at comptime.
+        </p>
+        <details open>
+          <summary>Response cases</summary>
+          <pre><code>const CreateUserResponse = web.Response(.{
+    web.case(.created, User),
+    web.case(.bad_request, Problem),
+    web.case(.unprocessable_entity, ValidationProblem),
+});</code></pre>
+        </details>
+      </article>
+    </section>
+
+    <h2>HTTP Pass-Through</h2>
+    <section class="mini">
+      <article class="card">
+        <h3>Contract enhances JSON</h3>
+        <p>
+          JSON is where the library adds schema emission, validation, typed
+          parsing, typed serialization, and OpenAPI schema generation.
+        </p>
+        <details open>
+          <summary>JSON response</summary>
+          <pre><code>fn createUser(ctx: *Ctx, body: web.Body(CreateUser)) !web.Created(User) {
+    return .{ .value = try ctx.store.create(body.value) };
+}</code></pre>
+        </details>
+      </article>
+
+      <article class="card">
+        <h3>Everything else passes through</h3>
+        <p>
+          HTML, text, bytes, blobs, files, redirects, streaming, WebSockets, and
+          custom headers should use the underlying <code>std.http.Server.Request</code>
+          APIs directly or through tiny convenience helpers.
+        </p>
+        <details open>
+          <summary>Pass-through response</summary>
+          <pre><code>fn download(req: *std.http.Server.Request) !void {
+    try req.respond(bytes, .{
+        .status = .ok,
+        .extra_headers = &.{
+            .{ .name = "content-type", .value = "application/octet-stream" },
+        },
+    });
+}</code></pre>
+        </details>
+      </article>
+    </section>
+
+    <h2>Minimal Surface</h2>
+    <section class="card">
+      <pre><code>// Layer 1
+pub fn jsonBody(comptime T: type, arena: Allocator, req: *Request, opts: BodyOptions) !T;
+pub fn respondJson(comptime T: type, arena: Allocator, req: *Request, status: Status, value: T, opts: ResponseOptions) !void;
+pub fn body(req: *Request, arena: Allocator, opts: BodyOptions) ![]const u8;
+
+// Layer 2
+pub fn Body(comptime T: type) type;
+pub fn Created(comptime T: type) type;
+pub fn Status(comptime status: std.http.Status, comptime T: type) type;
+pub fn get(comptime path: []const u8, comptime handler: anytype) Route;
+pub fn post(comptime path: []const u8, comptime handler: anytype) Route;
+pub fn Api(comptime routes: anytype) type;
+
+// Layer 3
+pub fn Request(comptime spec: anytype) type;
+pub fn case(comptime status: std.http.Status, comptime T: type) ResponseCase;
+pub fn Response(comptime cases: anytype) type;
+
+// OpenAPI
+pub fn openApiJson(comptime Api: type, allocator: Allocator, opts: OpenApiOptions) ![]u8;
+pub fn writeOpenApi(comptime Api: type, writer: *std.Io.Writer, opts: OpenApiOptions) !void;</code></pre>
+    </section>
+
+    <p class="footer">
+      Bottom line: Layer 1 preserves the stdlib. Layer 2 unlocks OpenAPI with
+      low ceremony. Layer 3 covers serious APIs with explicit error and response
+      contracts.
+    </p>
+  </main>
+</body>
+</html>

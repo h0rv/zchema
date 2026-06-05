@@ -1,0 +1,28 @@
+[tools]
+zig = "0.16.0"
+
+[tasks.fmt]
+description = "Format Zig sources"
+run = [
+  "zig fmt build.zig src tests examples",
+  "zig fmt --zon build.zig.zon",
+]
+
+[tasks.fmt-check]
+description = "Check Zig formatting"
+run = [
+  "zig fmt --check --ast-check build.zig src tests examples",
+  "zig fmt --check --zon build.zig.zon",
+]
+
+[tasks.lint]
+description = "Run static checks"
+depends = ["fmt-check"]
+
+[tasks.test]
+description = "Run test suite"
+run = "zig build test"
+
+[tasks.check]
+description = "Run formatting checks and tests"
+depends = ["lint", "test"]
