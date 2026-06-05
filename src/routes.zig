@@ -9,6 +9,7 @@
 const std = @import("std");
 const markers = @import("markers.zig");
 const contract = @import("contract.zig");
+const errors = @import("errors.zig");
 
 /// A registered route. Values of this type are produced by `get`/`post`/etc and
 /// collected by `Api`. Everything is comptime-known.
@@ -21,6 +22,9 @@ pub const Route = struct {
     request: ?type = null,
     /// Explicit response contract (`Response(...)`), if provided.
     response: ?type = null,
+    /// Raw (non-JSON) route: the handler responds itself and the route is
+    /// excluded from OpenAPI. Produced by `raw`.
+    is_raw: bool = false,
 
     /// Attach explicit request/response contracts to a route.
     ///
@@ -67,6 +71,15 @@ pub fn patch(comptime path: []const u8, comptime handler: anytype) Route {
 }
 pub fn delete(comptime path: []const u8, comptime handler: anytype) Route {
     return route(.DELETE, path, handler);
+}
+
+/// Register a non-JSON route. The handler takes the raw request (and optionally
+/// the context and per-request allocator), responds itself, and returns void.
+/// Raw routes are dispatched like any other but excluded from OpenAPI.
+pub fn raw(comptime method: std.http.Method, comptime path: []const u8, comptime handler: anytype) Route {
+    var r = route(method, path, handler);
+    r.is_raw = true;
+    return r;
 }
 
 /// Register a route with explicit request/response contracts in one call.
@@ -160,6 +173,16 @@ fn responsesFromType(comptime Payload: type) []const OperationResponse {
         const one = [_]OperationResponse{.{ .status = .no_content, .Type = null }};
         return &one;
     }
+    if (@typeInfo(Payload) == .optional) {
+        // `!?T` means "200 with T, or 404 with the default error body".
+        const child = @typeInfo(Payload).optional.child;
+        const ok: OperationResponse = if (child == void)
+            .{ .status = .no_content, .Type = null }
+        else
+            .{ .status = .ok, .Type = child };
+        const two = [_]OperationResponse{ ok, .{ .status = .not_found, .Type = errors.ErrorBody } };
+        return &two;
+    }
     if (markers.isResponse(Payload)) {
         const one = [_]OperationResponse{.{ .status = Payload.status, .Type = Payload.Inner }};
         return &one;
@@ -179,27 +202,46 @@ fn responsesFromType(comptime Payload: type) []const OperationResponse {
 
 fn paramsFromContract(comptime ReqContract: type) []const OperationParam {
     var list: []const OperationParam = &.{};
-    if (ReqContract.PathType) |P| {
-        inline for (std.meta.fields(P)) |f| {
-            list = list ++ [_]OperationParam{.{
-                .name = f.name,
-                .in = .path,
-                .Type = stripOptional(f.type),
-                .required = true,
-            }};
-        }
+    if (ReqContract.PathType) |P| list = list ++ pathParamsOf(P);
+    if (ReqContract.QueryType) |Q| list = list ++ queryParamsOf(Q);
+    return list;
+}
+
+/// Path and query parameters inferred from `Path(T)` / `Query(T)` handler params.
+fn inferredParams(comptime Fn: type) []const OperationParam {
+    var list: []const OperationParam = &.{};
+    inline for (@typeInfo(Fn).@"fn".params) |p| {
+        const PT = p.type orelse continue;
+        if (markers.isPath(PT)) list = list ++ pathParamsOf(PT.Inner);
+        if (markers.isQuery(PT)) list = list ++ queryParamsOf(PT.Inner);
     }
-    if (ReqContract.QueryType) |Q| {
-        inline for (std.meta.fields(Q)) |f| {
-            // A query field is optional when it is `?T` or carries a default.
-            const required = @typeInfo(f.type) != .optional and f.default_value_ptr == null;
-            list = list ++ [_]OperationParam{.{
-                .name = f.name,
-                .in = .query,
-                .Type = stripOptional(f.type),
-                .required = required,
-            }};
-        }
+    return list;
+}
+
+fn pathParamsOf(comptime P: type) []const OperationParam {
+    var list: []const OperationParam = &.{};
+    inline for (std.meta.fields(P)) |f| {
+        list = list ++ [_]OperationParam{.{
+            .name = f.name,
+            .in = .path,
+            .Type = stripOptional(f.type),
+            .required = true,
+        }};
+    }
+    return list;
+}
+
+fn queryParamsOf(comptime Q: type) []const OperationParam {
+    var list: []const OperationParam = &.{};
+    inline for (std.meta.fields(Q)) |f| {
+        // A query field is optional when it is `?T` or carries a default.
+        const required = @typeInfo(f.type) != .optional and f.default_value_ptr == null;
+        list = list ++ [_]OperationParam{.{
+            .name = f.name,
+            .in = .query,
+            .Type = stripOptional(f.type),
+            .required = required,
+        }};
     }
     return list;
 }
@@ -260,6 +302,7 @@ pub fn operation(comptime r: Route) Operation {
             params = paramsFromContract(Req);
         } else {
             body_type = inferredBodyType(Fn);
+            params = inferredParams(Fn);
         }
 
         // Responses: explicit contract wins, else infer from the return type.
@@ -296,6 +339,38 @@ fn createT(body: markers.Body(TCreate)) !markers.Created(TUser) {
 
 fn listT() ![]const TUser {
     return &.{};
+}
+
+fn getOneT(p: markers.Path(struct { id: u32 })) !?TUser {
+    _ = p;
+    return null;
+}
+
+fn searchT(q: markers.Query(struct { limit: u32 = 10, term: ?[]const u8 = null })) ![]const TUser {
+    _ = q;
+    return &.{};
+}
+
+test "operation infers path/query params from markers and optional return" {
+    const o = comptime operation(get("/users/{id}", getOneT));
+    try std.testing.expectEqual(@as(usize, 1), o.params.len);
+    try std.testing.expectEqualStrings("id", o.params[0].name);
+    try std.testing.expectEqual(ParamIn.path, o.params[0].in);
+    // `!?T` -> 200 plus 404.
+    try std.testing.expectEqual(@as(usize, 2), o.responses.len);
+    try std.testing.expectEqual(std.http.Status.ok, o.responses[0].status);
+    try std.testing.expect(o.responses[0].Type.? == TUser);
+    try std.testing.expectEqual(std.http.Status.not_found, o.responses[1].status);
+
+    const o2 = comptime operation(get("/users", searchT));
+    try std.testing.expectEqual(@as(usize, 2), o2.params.len);
+    try std.testing.expectEqual(ParamIn.query, o2.params[0].in);
+    try std.testing.expect(!o2.params[0].required); // limit has a default
+}
+
+test "raw marks a route non-JSON" {
+    const r = raw(.GET, "/health", listT);
+    try std.testing.expect(r.is_raw);
 }
 
 test "get/post produce routes" {

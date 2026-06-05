@@ -18,6 +18,7 @@ const markers = @import("markers.zig");
 const helpers = @import("helpers.zig");
 const errors = @import("errors.zig");
 const routes_mod = @import("routes.zig");
+const params = @import("params.zig");
 
 const Request = std.http.Server.Request;
 
@@ -62,22 +63,47 @@ fn invoke(
     const fn_info = @typeInfo(Fn).@"fn";
 
     var args: std.meta.ArgsTuple(Fn) = undefined;
+
+    // Pass 1: request, allocator, path and query params, and context. Path and
+    // query are parsed here, before the body, since reading the body invalidates
+    // req.head (which holds the target the params come from).
+    var param_errors: std.ArrayListUnmanaged(errors.FieldError) = .empty;
     inline for (fn_info.params, 0..) |p, i| {
         const PT = p.type orelse @compileError("zchema dispatch cannot handle generic handler parameters");
         if (PT == *Request) {
             args[i] = req;
         } else if (PT == std.mem.Allocator) {
             args[i] = arena;
-        } else if (comptime markers.isBody(PT)) {
-            var field_errors: std.ArrayListUnmanaged(errors.FieldError) = .empty;
-            const parsed = helpers.jsonBodyWithErrors(PT.Inner, arena, req, opts.body, &field_errors) catch |err| {
-                try respondError(arena, req, err, field_errors.items, opts.response);
+        } else if (comptime markers.isPath(PT)) {
+            const v = params.pathParams(PT.Inner, arena, r.path, req.head.target, &param_errors) catch {
+                try respondParams(arena, req, param_errors.items, opts.response);
                 return;
             };
-            args[i] = .{ .value = parsed };
+            args[i] = .{ .value = v };
+        } else if (comptime markers.isQuery(PT)) {
+            const v = params.queryParams(PT.Inner, arena, req.head.target, &param_errors) catch {
+                try respondParams(arena, req, param_errors.items, opts.response);
+                return;
+            };
+            args[i] = .{ .value = v };
+        } else if (comptime markers.isBody(PT)) {
+            // Filled in pass 2.
         } else {
             // Pass the caller context through, coerced to the expected type.
             args[i] = @as(PT, ctx);
+        }
+    }
+
+    // Pass 2: the body, which consumes the request stream.
+    inline for (fn_info.params, 0..) |p, i| {
+        const PT = p.type.?;
+        if (comptime markers.isBody(PT)) {
+            var body_errors: std.ArrayListUnmanaged(errors.FieldError) = .empty;
+            const parsed = helpers.jsonBodyWithErrors(PT.Inner, arena, req, opts.body, &body_errors) catch |err| {
+                try respondError(arena, req, err, body_errors.items, opts.response);
+                return;
+            };
+            args[i] = .{ .value = parsed };
         }
     }
 
@@ -96,9 +122,32 @@ fn invoke(
         return;
     } else if (comptime markers.isResponse(Payload)) {
         try helpers.respondJson(Payload.Inner, arena, req, Payload.status, ret.value, opts.response);
+    } else if (comptime @typeInfo(Payload) == .optional) {
+        // `!?T`: present is 200 (or 204 for void), null is 404.
+        const Child = @typeInfo(Payload).optional.child;
+        if (ret) |v| {
+            if (Child == void) {
+                try req.respond("", .{ .status = .no_content });
+            } else {
+                try helpers.respondJson(Child, arena, req, .ok, v, opts.response);
+            }
+        } else {
+            try helpers.respondErrorBody(arena, req, errors.errorBody(.not_found, "Resource not found.", &.{}), opts.response);
+        }
     } else {
         try helpers.respondJson(Payload, arena, req, .ok, ret, opts.response);
     }
+}
+
+/// Respond with a 422 carrying path/query parameter validation failures.
+fn respondParams(
+    arena: std.mem.Allocator,
+    req: *Request,
+    items: []const errors.FieldError,
+    resp_opts: helpers.ResponseOptions,
+) !void {
+    const body = errors.errorBody(.unprocessable_entity, "Request parameters failed validation.", items);
+    try helpers.respondErrorBody(arena, req, body, resp_opts);
 }
 
 /// Send a default structured problem response for a boundary error, carrying

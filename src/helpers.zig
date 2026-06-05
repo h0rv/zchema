@@ -185,10 +185,13 @@ pub fn respondErrorBody(
     error_body: errors.ErrorBody,
     opts: ResponseOptions,
 ) !void {
+    // Omit null members (detail/instance) so the body matches RFC 9457 style;
+    // the ErrorBody schema marks them optional, so this stays schema-consistent.
+    const json = try std.json.Stringify.valueAlloc(arena, error_body, .{ .emit_null_optional_fields = false });
     var o = opts;
     o.content_type = errors.error_content_type;
     const status: std.http.Status = @enumFromInt(error_body.status);
-    try respondJson(errors.ErrorBody, arena, req, status, error_body, o);
+    try respondJsonRaw(arena, req, status, json, o);
 }
 
 /// Send an already-serialized JSON `payload` with `status`, adding the content

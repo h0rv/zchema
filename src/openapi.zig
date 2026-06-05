@@ -168,12 +168,12 @@ fn assertApi(comptime ApiT: type) void {
 }
 
 fn operations(comptime ApiT: type) []const Operation {
-    var arr: [ApiT.routes.len]Operation = undefined;
-    inline for (ApiT.routes, 0..) |r, i| {
-        arr[i] = routes_mod.operation(r);
+    var list: []const Operation = &.{};
+    inline for (ApiT.routes) |r| {
+        if (r.is_raw) continue; // raw routes are not JSON; not documented
+        list = list ++ [_]Operation{routes_mod.operation(r)};
     }
-    const final = arr;
-    return &final;
+    return list;
 }
 
 fn distinctPaths(comptime ops: []const Operation) []const []const u8 {

@@ -24,6 +24,8 @@ const errors = @import("errors.zig");
 const validation = @import("validation.zig");
 const docs = @import("docs.zig");
 const app = @import("app.zig");
+const params = @import("params.zig");
+const server = @import("server.zig");
 
 // --- Helper functions -------------------------------------------------------
 
@@ -44,6 +46,8 @@ pub const isJsonContentType = helpers.isJsonContentType;
 // --- Signature markers ------------------------------------------------------
 
 pub const Body = markers.Body;
+pub const Path = markers.Path;
+pub const Query = markers.Query;
 pub const Created = markers.Created;
 pub const Status = markers.Status;
 
@@ -56,6 +60,7 @@ pub const post = routes.post;
 pub const put = routes.put;
 pub const patch = routes.patch;
 pub const delete = routes.delete;
+pub const raw = routes.raw;
 pub const op = routes.op;
 pub const operation = routes.operation;
 pub const Operation = routes.Operation;
@@ -91,6 +96,8 @@ pub const handle = dispatch.handle;
 pub const App = app.App;
 pub const ServeConfig = app.ServeConfig;
 pub const DocsServe = app.DocsServe;
+pub const serve = server.serve;
+pub const ServeOptions = server.ServeOptions;
 
 // --- Errors and schema access ----------------------------------------------
 
@@ -115,4 +122,6 @@ test {
     _ = validation;
     _ = docs;
     _ = app;
+    _ = params;
+    _ = server;
 }

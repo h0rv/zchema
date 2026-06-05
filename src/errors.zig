@@ -60,8 +60,8 @@ pub const ErrorBody = struct {
             .type = .{ .description = "URI reference identifying the problem type." },
             .title = .{ .description = "Short summary of the problem type." },
             .status = .{ .description = "HTTP status code.", .minimum = 100, .maximum = 599 },
-            .detail = .{ .description = "Explanation specific to this occurrence." },
-            .instance = .{ .description = "URI reference for this specific occurrence." },
+            .detail = .{ .description = "Explanation specific to this occurrence.", .required = false },
+            .instance = .{ .description = "URI reference for this specific occurrence.", .required = false },
         },
     };
 };

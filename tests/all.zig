@@ -203,3 +203,95 @@ test "generated document is a compliant OpenAPI 3.1 document" {
     }
     try std.testing.expect(ok);
 }
+
+// --- Path / Query / optional-return / raw routes ----------------------------
+
+const Item = struct {
+    id: u32,
+    name: []const u8,
+    pub const jsonschema = .{ .name = "Item" };
+};
+
+var items_buf = [_]Item{ .{ .id = 1, .name = "a" }, .{ .id = 2, .name = "b" } };
+
+fn getItem(p: zchema.Path(struct { id: u32 })) !?Item {
+    for (items_buf) |it| {
+        if (it.id == p.value.id) return it;
+    }
+    return null;
+}
+
+fn listItems(q: zchema.Query(struct { limit: u32 = 10 })) ![]const Item {
+    return items_buf[0..@min(q.value.limit, items_buf.len)];
+}
+
+fn ping(req: *std.http.Server.Request) !void {
+    try req.respond("pong", .{ .extra_headers = &.{.{ .name = "content-type", .value = "text/plain" }} });
+}
+
+const Api2 = zchema.Api(.{
+    zchema.get("/items/{id}", getItem),
+    zchema.get("/items", listItems),
+    zchema.raw(.GET, "/ping", ping),
+});
+
+fn run2(arena: std.mem.Allocator, bytes: []const u8) ![]const u8 {
+    var in = std.Io.Reader.fixed(bytes);
+    var out: std.Io.Writer.Allocating = .init(arena);
+    var server = std.http.Server.init(&in, &out.writer);
+    var req = try server.receiveHead();
+    _ = try zchema.handle(Api2, {}, arena, &req, .{});
+    return out.written();
+}
+
+test "typed path param resolves and optional return gives 200/404" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const ok = try run2(arena, "GET /items/1 HTTP/1.1\r\n\r\n");
+    try std.testing.expect(std.mem.indexOf(u8, ok, "200 OK") != null);
+    try std.testing.expect(std.mem.indexOf(u8, ok, "\"name\":\"a\"") != null);
+
+    const missing = try run2(arena, "GET /items/999 HTTP/1.1\r\n\r\n");
+    try std.testing.expect(std.mem.indexOf(u8, missing, "404") != null);
+    try std.testing.expect(std.mem.indexOf(u8, missing, "application/problem+json") != null);
+}
+
+test "invalid path param yields 422 parameter error" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const resp = try run2(arena, "GET /items/abc HTTP/1.1\r\n\r\n");
+    try std.testing.expect(std.mem.indexOf(u8, resp, "422") != null);
+    try std.testing.expect(std.mem.indexOf(u8, resp, "Request parameters failed validation.") != null);
+}
+
+test "typed query param applies and validates" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const one = try run2(arena, "GET /items?limit=1 HTTP/1.1\r\n\r\n");
+    try std.testing.expect(std.mem.indexOf(u8, one, "\"name\":\"a\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, one, "\"name\":\"b\"") == null);
+
+    const bad = try run2(arena, "GET /items?limit=nope HTTP/1.1\r\n\r\n");
+    try std.testing.expect(std.mem.indexOf(u8, bad, "422") != null);
+}
+
+test "raw route serves non-JSON and is absent from OpenAPI" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const resp = try run2(arena, "GET /ping HTTP/1.1\r\n\r\n");
+    try std.testing.expect(std.mem.indexOf(u8, resp, "pong") != null);
+    try std.testing.expect(std.mem.indexOf(u8, resp, "text/plain") != null);
+
+    const doc = try zchema.openApiJson(Api2, std.testing.allocator, .{});
+    defer std.testing.allocator.free(doc);
+    try std.testing.expect(std.mem.indexOf(u8, doc, "/ping") == null);
+    try std.testing.expect(std.mem.indexOf(u8, doc, "/items/{id}") != null);
+}

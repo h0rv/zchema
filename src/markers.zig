@@ -14,6 +14,10 @@ pub const Kind = enum {
     body,
     /// A single-status response marker produced by `Created` / `Status`.
     response,
+    /// A path-parameters marker produced by `Path`.
+    path,
+    /// A query-parameters marker produced by `Query`.
+    query,
 };
 
 /// Request body marker: wraps the parsed-and-validated request body of type `T`.
@@ -27,6 +31,28 @@ pub fn Body(comptime T: type) type {
 
         pub const zchema_marker: Kind = .body;
         /// The wrapped data type.
+        pub const Inner = T;
+    };
+}
+
+/// Path-parameters marker: `T` is a struct whose fields name the `{...}`
+/// segments of the route path. The dispatcher parses them from the URL.
+pub fn Path(comptime T: type) type {
+    return struct {
+        value: T,
+
+        pub const zchema_marker: Kind = .path;
+        pub const Inner = T;
+    };
+}
+
+/// Query-parameters marker: `T` is a struct whose fields name query keys.
+/// Fields with a default or an optional type are not required.
+pub fn Query(comptime T: type) type {
+    return struct {
+        value: T,
+
+        pub const zchema_marker: Kind = .query;
         pub const Inner = T;
     };
 }
@@ -64,6 +90,16 @@ pub fn isBody(comptime T: type) bool {
 /// True when `T` is a `Created`/`Status` response marker.
 pub fn isResponse(comptime T: type) bool {
     return markerKind(T) == .response;
+}
+
+/// True when `T` is a `Path(X)` marker.
+pub fn isPath(comptime T: type) bool {
+    return markerKind(T) == .path;
+}
+
+/// True when `T` is a `Query(X)` marker.
+pub fn isQuery(comptime T: type) bool {
+    return markerKind(T) == .query;
 }
 
 test "body marker carries inner type" {
