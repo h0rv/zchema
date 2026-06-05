@@ -60,8 +60,11 @@ fn updateUser(store: *Store, path: zchema.Path(Id), body: zchema.Body(UpdateUser
     return store.update(path.value.id, body.value.name);
 }
 
-fn deleteUser(store: *Store, path: zchema.Path(Id)) !?User {
-    return store.remove(path.value.id);
+// `!?void` is the conventional DELETE: 204 when removed, 404 when it was absent.
+// (Return `!?User` instead for a Stripe-style 200 with the deleted record.)
+fn deleteUser(store: *Store, path: zchema.Path(Id)) !?void {
+    if (store.remove(path.value.id) != null) return {};
+    return null;
 }
 
 // Raw route: non-JSON, responds itself, excluded from OpenAPI.
