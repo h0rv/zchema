@@ -8,6 +8,10 @@ generation. It does not own the accept loop, the socket lifecycle, the threading
 model, or any non-JSON behavior. `std.http.Server.Request` stays available
 everywhere, so the raw stdlib path is always one call away.
 
+The approach is borrowed from FastAPI and Pydantic: your declarative Zig types
+are the single source of truth, and validation plus an OpenAPI spec fall out of
+them, with no GC and no macros.
+
 Schemas and validation come from
 [`h0rv/jsonschema.zig`](https://github.com/h0rv/jsonschema.zig) (Draft 2020-12).
 Requires Zig 0.16.0+.
