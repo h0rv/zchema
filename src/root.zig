@@ -25,7 +25,6 @@ const validation = @import("validation.zig");
 const docs = @import("docs.zig");
 const app = @import("app.zig");
 const params = @import("params.zig");
-const server = @import("server.zig");
 
 // --- Helper functions -------------------------------------------------------
 
@@ -96,8 +95,6 @@ pub const handle = dispatch.handle;
 pub const App = app.App;
 pub const ServeConfig = app.ServeConfig;
 pub const DocsServe = app.DocsServe;
-pub const serve = server.serve;
-pub const ServeOptions = server.ServeOptions;
 
 // --- Errors and schema access ----------------------------------------------
 
@@ -123,5 +120,4 @@ test {
     _ = docs;
     _ = app;
     _ = params;
-    _ = server;
 }

@@ -73,7 +73,7 @@ pub fn build(b: *std.Build) void {
 
     // Examples. Each builds its own executable and gets a `run-<name>` step.
     // Compiling them is part of `test` so they cannot silently rot.
-    const examples = [_][]const u8{ "users_api", "migration" };
+    const examples = [_][]const u8{ "users_api", "threaded" };
     const examples_step = b.step("examples", "Build the examples");
     for (examples) |name| {
         const example = b.addExecutable(.{

@@ -56,7 +56,8 @@ try z.respondJson(Greeting, arena, &req, .ok, .{ .message = input.name }, .{});
 
 `jsonBody` reads the body under a byte limit, validates it against the schema
 emitted from `Echo`, then parses. `respondError` turns a zchema error into a
-structured JSON body. See `examples/migration.zig`.
+structured JSON body. These helpers work inside any existing handler; you do not
+need to register routes to use them.
 
 ## Registered routes and markers
 
@@ -114,22 +115,35 @@ const Api = z.Api(.{
 
 ## Serving
 
-`z.serve` owns the accept loop, per-connection lifecycle, and per-request
-arena, with a default 404 for unmatched requests:
+zchema owns the contracts, not the server. You run `std.http.Server` and call
+`Server.handle` per request; it returns `false` when nothing matched, so you stay
+in control of the loop, threading, and socket lifecycle:
 
 ```zig
 const Server = z.App(Api, .{ .openapi = .{ .title = "Users API", .version = "1.0.0" } });
 
-pub fn main(init: std.process.Init) !void {
-    var store: Store = .{ .gpa = init.gpa };
-    try z.serve(Server, init.io, init.gpa, &store, .{ .port = 8080 });
+fn serveConnection(io: std.Io, gpa: std.mem.Allocator, ctx: *Ctx, stream: std.Io.net.Stream) void {
+    defer stream.close(io);
+    var recv: [16 * 1024]u8 = undefined;
+    var send: [16 * 1024]u8 = undefined;
+    var sr = stream.reader(io, &recv);
+    var sw = stream.writer(io, &send);
+    var http = std.http.Server.init(&sr.interface, &sw.interface);
+    while (true) {
+        var req = http.receiveHead() catch return;
+        var arena_state = std.heap.ArenaAllocator.init(gpa);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+        if (Server.handle(ctx, arena, &req, .{}) catch return) continue;
+        z.respondErrorBody(arena, &req, z.errorBody(.not_found, "No matching route.", &.{}), .{}) catch return;
+    }
 }
 ```
 
-`ServeOptions` takes `host`, `port`, an `on_not_found` override, and the dispatch
-options. For full control over the socket, threading, or non-JSON behavior, skip
-`serve` and call `Server.handle(ctx, arena, &req, .{})` in your own loop; it
-returns `false` when nothing matched.
+`examples/users_api.zig` is the full single-threaded version; `examples/threaded.zig`
+runs a fixed pool of worker threads accepting on a shared socket (the default
+`init.io` is `std.Io.Threaded`, which is safe to share across threads). For an
+event loop, drive `handle` from a single-threaded io_uring/kqueue reactor.
 
 Non-JSON endpoints live in the same table via `z.raw`, which takes the raw
 request, responds itself, and is excluded from OpenAPI:
@@ -137,8 +151,6 @@ request, responds itself, and is excluded from OpenAPI:
 ```zig
 z.raw(.GET, "/health", health) // fn health(req: *std.http.Server.Request) !void
 ```
-
-See `examples/users_api.zig` for the full CRUD service in ~120 lines.
 
 ## Data models
 

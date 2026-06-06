@@ -1,6 +1,6 @@
-//! A full users API: typed bodies, path and query params, multiple response
-//! statuses, a raw non-JSON route, OpenAPI, and a docs UI. The whole server is
-//! the route table plus a `main` that calls `z.serve`.
+//! A full users API. zchema owns the contracts (typed bodies, path and query
+//! params, responses, validation, OpenAPI, docs); you own the server loop. This
+//! file shows the simple single-threaded loop. For concurrency, see threaded.zig.
 //!
 //! Try:
 //!   curl -s localhost:8080/users -d '{"name":"Ada"}' -H 'content-type: application/json'
@@ -42,8 +42,7 @@ const Api = z.Api(.{
 const Server = z.App(Api, .{ .openapi = .{ .title = "Users API", .version = "1.0.0" } });
 
 // Markers carry the contract in the signature: Body for the request, Path and
-// Query for params (parsed and validated by the dispatcher), and the return type
-// for the response. `!?User` means 200 with the user or 404.
+// Query for params, and the return type for the response. `!?User` is 200 or 404.
 fn createUser(store: *Store, body: z.Body(CreateUser)) !z.Created(User) {
     return .{ .value = try store.create(body.value.name) };
 }
@@ -60,8 +59,7 @@ fn updateUser(store: *Store, path: z.Path(Id), body: z.Body(UpdateUser)) !?User 
     return store.update(path.value.id, body.value.name);
 }
 
-// `!?void` is the conventional DELETE: 204 when removed, 404 when it was absent.
-// (Return `!?User` instead for a Stripe-style 200 with the deleted record.)
+// `!?void` is the conventional DELETE: 204 when removed, 404 when absent.
 fn deleteUser(store: *Store, path: z.Path(Id)) !?void {
     if (store.remove(path.value.id) != null) return {};
     return null;
@@ -73,8 +71,41 @@ fn health(req: *std.http.Server.Request) !void {
 }
 
 pub fn main(init: std.process.Init) !void {
-    var store: Store = .{ .gpa = init.gpa };
-    try z.serve(Server, init.io, init.gpa, &store, .{ .port = 8080 });
+    const io = init.io;
+    const gpa = init.gpa;
+    var store: Store = .{ .gpa = gpa };
+
+    var addr = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 8080);
+    var listener = try addr.listen(io, .{ .reuse_address = true });
+    defer listener.deinit(io);
+    std.log.info("users API on http://127.0.0.1:8080 (docs at /docs)", .{});
+
+    while (true) {
+        const stream = listener.accept(io) catch continue;
+        serveConnection(io, gpa, &store, stream);
+    }
+}
+
+/// Serve every request on one connection. This is the integration point: call
+/// `Server.handle`, and fall back to a 404 when nothing matched.
+fn serveConnection(io: std.Io, gpa: std.mem.Allocator, store: *Store, stream: std.Io.net.Stream) void {
+    defer stream.close(io);
+    var recv: [16 * 1024]u8 = undefined;
+    var send: [16 * 1024]u8 = undefined;
+    var sr = stream.reader(io, &recv);
+    var sw = stream.writer(io, &send);
+    var http = std.http.Server.init(&sr.interface, &sw.interface);
+
+    while (true) {
+        var req = http.receiveHead() catch return;
+
+        var arena_state = std.heap.ArenaAllocator.init(gpa);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+
+        if (Server.handle(store, arena, &req, .{}) catch return) continue;
+        z.respondErrorBody(arena, &req, z.errorBody(.not_found, "No matching route.", &.{}), .{}) catch return;
+    }
 }
 
 // In-memory store. Owns user names so they outlive the per-request arena.

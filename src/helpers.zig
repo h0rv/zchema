@@ -207,9 +207,16 @@ pub fn respondJsonRaw(
     headers[0] = .{ .name = "content-type", .value = opts.content_type };
     @memcpy(headers[1..], opts.extra_headers);
 
+    // A body-bearing request (POST/PUT/PATCH) with no content-length and no
+    // chunked encoding has an unframed body that cannot be kept alive; std.http
+    // would assert (unreachable) while trying to discard it. Close instead.
+    const unframed_body = req.head.method.requestHasBody() and
+        req.head.transfer_encoding == .none and
+        req.head.content_length == null;
+
     try req.respond(payload, .{
         .status = status,
-        .keep_alive = opts.keep_alive,
+        .keep_alive = opts.keep_alive and !unframed_body,
         .extra_headers = headers,
     });
 }
