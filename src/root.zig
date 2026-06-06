@@ -67,6 +67,9 @@ pub const raw = routes.raw;
 pub const op = routes.op;
 pub const operation = routes.operation;
 pub const Operation = routes.Operation;
+pub const OperationParam = routes.OperationParam;
+pub const OperationResponse = routes.OperationResponse;
+pub const ParamIn = routes.ParamIn;
 
 // --- Explicit contracts -----------------------------------------------------
 

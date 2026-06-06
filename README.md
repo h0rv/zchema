@@ -191,6 +191,11 @@ parameters all come from the registered types. Object schemas are hoisted into
 The document is validated against the official OpenAPI 3.1 JSON Schema in the
 test suite, so it stays compliant.
 
+`openApiJson` is just a renderer over inspectable data. The route table is
+public: walk `Api.routes`, call `operation(route)` for each, and read the request
+body, params, and response models. Use that to build your own artifacts (a custom
+spec, client codegen, a route listing). See `examples/introspect.zig`.
+
 ## App: spec and docs on by default
 
 `App` wraps an `Api` and serves your routes plus an OpenAPI spec endpoint
