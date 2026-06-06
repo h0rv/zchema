@@ -23,6 +23,10 @@ depends = ["fmt-check"]
 description = "Run test suite"
 run = "zig build test"
 
+[tasks.verify-install]
+description = "Build a consumer that depends on zchema alone (jsonschema is transitive)"
+run = "cd tests/consumer && zig build"
+
 [tasks.check]
 description = "Run formatting checks and tests"
 depends = ["lint", "test"]

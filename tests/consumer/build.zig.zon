@@ -1,0 +1,14 @@
+.{
+    .name = .zchema_consumer,
+    .version = "0.0.0",
+    .fingerprint = 0xbfcace1cc5562d72,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .zchema = .{ .path = "../.." },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

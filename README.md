@@ -15,17 +15,18 @@ Requires Zig 0.16.0+.
 ## Install
 
 ```sh
-zig fetch --save "git+https://github.com/h0rv/jsonschema.zig.git#v0.1.0"
 zig fetch --save "git+https://github.com/h0rv/zchema.git"
 ```
 
-Wire both modules into `build.zig`:
+Wire the module into `build.zig`:
 
 ```zig
-const jsonschema = b.dependency("jsonschema", .{ .target = target, .optimize = optimize });
 const zchema = b.dependency("zchema", .{ .target = target, .optimize = optimize });
 exe.root_module.addImport("zchema", zchema.module("zchema"));
 ```
+
+`jsonschema` is pulled in automatically as a transitive dependency of
+`zchema`, so you do not need to fetch or wire it yourself.
 
 The snippets below import the module under a short alias:
 
@@ -239,6 +240,32 @@ z.App(Api, .{
 
 If you would rather serve the page yourself, `docsHtml`, `writeDocsHtml`, and
 `respondDocs` return, stream, or send the same HTML with the same `DocsOptions`.
+
+## Use with other servers (http.zig, etc.)
+
+The validation and schema layers do not depend on `std.http`; they work on raw
+bytes and Zig types. So even if you serve with another library such as
+[http.zig](https://github.com/karlseguin/http.zig), you can still validate
+requests and responses against your types:
+
+```zig
+// request: validate raw body bytes into a typed value
+const input = try z.parseAndValidate(CreateUser, req.arena, req.body() orelse "", null);
+
+// response: serialize (and optionally validate) a value to JSON bytes
+res.body = try z.serializeAndValidate(User, res.arena, user, false);
+res.content_type = .JSON;
+
+// schemas for your own OpenAPI assembly
+const schema = z.schemaText(CreateUser);
+```
+
+What does not carry over: the dispatcher, the markers, and `App` are tied to
+`std.http.Server.Request` and assume zchema owns routing. http.zig has its own
+router and request/response types, so pairing two routers is not worth it.
+Auto-OpenAPI (`z.openApiJson`) reads a zchema `Api` route table, so full spec
+generation stays with zchema's router; with another server you assemble the
+document from `schemaText`/`schemaName` yourself.
 
 ## Non-JSON behavior
 

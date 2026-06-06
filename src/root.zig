@@ -112,6 +112,15 @@ pub const errorDetail = errors.detailForError;
 pub const schemaText = validation.schemaText;
 pub const schemaName = validation.schemaName;
 
+// --- Server-agnostic validation primitives ----------------------------------
+// These operate on raw bytes / parsed values, not on `std.http`, so they can be
+// used with any server (for example http.zig) to validate requests and
+// responses without zchema's dispatcher.
+
+pub const parseAndValidate = validation.parseAndValidate;
+pub const validateValue = validation.validateValue;
+pub const serializeAndValidate = validation.serializeAndValidate;
+
 test {
     _ = helpers;
     _ = markers;

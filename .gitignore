@@ -4,3 +4,6 @@
 /.zig-cache
 /zig-out/bin
 /skills-lock.json
+tests/consumer/.zig-cache
+tests/consumer/zig-out
+tests/consumer/zig-pkg
