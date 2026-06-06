@@ -229,9 +229,19 @@ fn ping(req: *std.http.Server.Request) !void {
     try req.respond("pong", .{ .extra_headers = &.{.{ .name = "content-type", .value = "text/plain" }} });
 }
 
+const Token = struct {
+    token: []const u8,
+    pub const jsonschema = .{ .name = "Token" };
+};
+
+fn whoami(auth: zchema.Header("x-token")) !Token {
+    return .{ .token = auth.value orelse "anonymous" };
+}
+
 const Api2 = zchema.Api(.{
     zchema.get("/items/{id}", getItem),
     zchema.get("/items", listItems),
+    zchema.get("/whoami", whoami),
     zchema.raw(.GET, "/ping", ping),
 });
 
@@ -294,4 +304,40 @@ test "raw route serves non-JSON and is absent from OpenAPI" {
     defer std.testing.allocator.free(doc);
     try std.testing.expect(std.mem.indexOf(u8, doc, "/ping") == null);
     try std.testing.expect(std.mem.indexOf(u8, doc, "/items/{id}") != null);
+}
+
+test "HEAD falls back to the matching GET route, body omitted" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const resp = try run2(arena, "HEAD /items/1 HTTP/1.1\r\n\r\n");
+    try std.testing.expect(std.mem.indexOf(u8, resp, "200 OK") != null);
+    try std.testing.expect(std.mem.indexOf(u8, resp, "content-length:") != null);
+    try std.testing.expect(std.mem.indexOf(u8, resp, "\"name\":\"a\"") == null); // body omitted
+
+    // Disabled: HEAD no longer matches the GET route.
+    var in = std.Io.Reader.fixed("HEAD /items/1 HTTP/1.1\r\n\r\n");
+    var out: std.Io.Writer.Allocating = .init(arena);
+    var server = std.http.Server.init(&in, &out.writer);
+    var req = try server.receiveHead();
+    const matched = try zchema.handle(Api2, {}, arena, &req, .{ .head_fallback = false });
+    try std.testing.expect(!matched);
+}
+
+test "Header marker injects the request header, case-insensitive" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const with = try run2(arena, "GET /whoami HTTP/1.1\r\nX-Token: secret\r\n\r\n");
+    try std.testing.expect(std.mem.indexOf(u8, with, "\"token\":\"secret\"") != null);
+
+    const without = try run2(arena, "GET /whoami HTTP/1.1\r\n\r\n");
+    try std.testing.expect(std.mem.indexOf(u8, without, "\"token\":\"anonymous\"") != null);
+
+    const doc = try zchema.openApiJson(Api2, std.testing.allocator, .{});
+    defer std.testing.allocator.free(doc);
+    try std.testing.expect(std.mem.indexOf(u8, doc, "\"in\":\"header\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doc, "x-token") != null);
 }

@@ -39,6 +39,9 @@ pub const respondError = helpers.respondError;
 pub const respondErrorBody = helpers.respondErrorBody;
 pub const pathEql = helpers.pathEql;
 pub const pathParam = helpers.pathParam;
+pub const header = helpers.header;
+pub const headerWith = helpers.headerWith;
+pub const HeaderCase = helpers.HeaderCase;
 pub const targetPath = helpers.targetPath;
 pub const isJsonContentType = helpers.isJsonContentType;
 
@@ -47,6 +50,7 @@ pub const isJsonContentType = helpers.isJsonContentType;
 pub const Body = markers.Body;
 pub const Path = markers.Path;
 pub const Query = markers.Query;
+pub const Header = markers.Header;
 pub const Created = markers.Created;
 pub const Status = markers.Status;
 

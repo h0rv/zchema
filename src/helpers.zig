@@ -79,6 +79,30 @@ pub fn pathParam(req: *const Request, template: []const u8, name: []const u8) ?[
     }
 }
 
+/// Header name matching. HTTP header names are case-insensitive, so that is the
+/// default; `sensitive` is available for the rare case that needs exact bytes.
+pub const HeaderCase = enum { insensitive, sensitive };
+
+/// The value of request header `name` (case-insensitive), or null when absent.
+///
+/// Read headers before consuming the body; see `body` on head invalidation.
+pub fn header(req: *const Request, name: []const u8) ?[]const u8 {
+    return headerWith(req, name, .insensitive);
+}
+
+/// Like `header`, but with selectable case sensitivity.
+pub fn headerWith(req: *const Request, name: []const u8, case: HeaderCase) ?[]const u8 {
+    var it = req.iterateHeaders();
+    while (it.next()) |h| {
+        const match = switch (case) {
+            .insensitive => std.ascii.eqlIgnoreCase(h.name, name),
+            .sensitive => std.mem.eql(u8, h.name, name),
+        };
+        if (match) return h.value;
+    }
+    return null;
+}
+
 /// The path component of the request target, without any query string.
 pub fn targetPath(req: *const Request) []const u8 {
     const target = req.head.target;
@@ -253,4 +277,18 @@ test "isJsonContentType matches json media types" {
     try std.testing.expect(isJsonContentType("application/merge-patch+json"));
     try std.testing.expect(!isJsonContentType("text/plain"));
     try std.testing.expect(!isJsonContentType(null));
+}
+
+test "header lookup is case-insensitive by default and toggleable" {
+    const bytes = "GET / HTTP/1.1\r\nX-Token: abc\r\n\r\n";
+    var server: std.http.Server = .{
+        .reader = .{ .in = undefined, .state = .received_head, .interface = undefined, .max_head_len = 4096 },
+        .out = undefined,
+    };
+    var req: Request = .{ .server = &server, .head = undefined, .head_buffer = bytes };
+
+    try std.testing.expectEqualStrings("abc", header(&req, "x-token").?);
+    try std.testing.expectEqualStrings("abc", headerWith(&req, "X-Token", .sensitive).?);
+    try std.testing.expectEqual(@as(?[]const u8, null), headerWith(&req, "x-token", .sensitive));
+    try std.testing.expectEqual(@as(?[]const u8, null), header(&req, "missing"));
 }

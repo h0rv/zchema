@@ -18,6 +18,8 @@ pub const Kind = enum {
     path,
     /// A query-parameters marker produced by `Query`.
     query,
+    /// A single-header marker produced by `Header`.
+    header,
 };
 
 /// Request body marker: wraps the parsed-and-validated request body of type `T`.
@@ -54,6 +56,19 @@ pub fn Query(comptime T: type) type {
 
         pub const zchema_marker: Kind = .query;
         pub const Inner = T;
+    };
+}
+
+/// Single-header marker: the request header named `name` (case-insensitive),
+/// injected as `value: ?[]const u8` (null when absent). The name is embedded in
+/// the type, so `Header("authorization")` documents and reads that header.
+pub fn Header(comptime name: []const u8) type {
+    if (name.len == 0) @compileError("Header name must not be empty");
+    return struct {
+        value: ?[]const u8,
+
+        pub const zchema_marker: Kind = .header;
+        pub const header_name = name;
     };
 }
 
@@ -100,6 +115,11 @@ pub fn isPath(comptime T: type) bool {
 /// True when `T` is a `Query(X)` marker.
 pub fn isQuery(comptime T: type) bool {
     return markerKind(T) == .query;
+}
+
+/// True when `T` is a `Header(name)` marker.
+pub fn isHeader(comptime T: type) bool {
+    return markerKind(T) == .header;
 }
 
 test "body marker carries inner type" {

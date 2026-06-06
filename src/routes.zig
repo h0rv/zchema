@@ -123,7 +123,7 @@ pub fn Api(comptime routes_tuple: anytype) type {
 // --- Handler-signature reflection -------------------------------------------
 
 /// Where an operation parameter is carried.
-pub const ParamIn = enum { path, query };
+pub const ParamIn = enum { path, query, header };
 
 /// A single path or query parameter of an operation.
 pub const OperationParam = struct {
@@ -214,6 +214,12 @@ fn inferredParams(comptime Fn: type) []const OperationParam {
         const PT = p.type orelse continue;
         if (markers.isPath(PT)) list = list ++ pathParamsOf(PT.Inner);
         if (markers.isQuery(PT)) list = list ++ queryParamsOf(PT.Inner);
+        if (markers.isHeader(PT)) list = list ++ [_]OperationParam{.{
+            .name = PT.header_name,
+            .in = .header,
+            .Type = []const u8,
+            .required = false,
+        }};
     }
     return list;
 }

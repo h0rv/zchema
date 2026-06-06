@@ -65,7 +65,9 @@ pub fn App(comptime ApiT: type, comptime cfg: ServeConfig) type {
         ) !bool {
             if (try dispatch.handle(ApiT, ctx, arena, req, opts)) return true;
 
-            if (cfg.docs.enabled and req.head.method == .GET) {
+            const getlike = req.head.method == .GET or
+                (opts.head_fallback and req.head.method == .HEAD);
+            if (cfg.docs.enabled and getlike) {
                 const path = helpers.targetPath(req);
                 if (std.mem.eql(u8, path, cfg.docs.spec_path)) {
                     const doc = try openapi.openApiJson(ApiT, arena, cfg.openapi);

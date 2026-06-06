@@ -67,6 +67,10 @@ parameter and the return type mean, and the same information drives OpenAPI:
 - `Body(T)`: parsed and validated request body.
 - `Path(T)`: path params, parsed from the `{...}` segments into `T`.
 - `Query(T)`: query params, parsed into `T` (fields with a default or `?T` are optional).
+- `Header("name")`: one request header (case-insensitive) as `value: ?[]const u8`;
+  the name is in the type, so it is also documented as an OpenAPI header parameter.
+  For dynamic or case-sensitive lookups use `z.header(req, name)` /
+  `z.headerWith(req, name, .sensitive)` on a `*Request`.
 - `*std.http.Server.Request`: the raw request. `std.mem.Allocator`: the per-request arena.
 - Return type: `Created(T)`/`Status(code, T)` for a fixed status, a plain `T` for 200,
   or `!?T` for "200 with T, or 404".

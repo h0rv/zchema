@@ -26,6 +26,9 @@ const Request = std.http.Server.Request;
 pub const DispatchOptions = struct {
     body: helpers.BodyOptions = .{},
     response: helpers.ResponseOptions = .{},
+    /// When true (the default), a HEAD request with no exact match falls back to
+    /// the matching GET route. std.http omits the body for HEAD automatically.
+    head_fallback: bool = true,
 };
 
 /// Try to handle `req` with a route from `ApiT`.
@@ -43,10 +46,20 @@ pub fn handle(
     req: *Request,
     opts: DispatchOptions,
 ) !bool {
+    // Exact method match first (this also honors an explicit HEAD route).
     inline for (ApiT.routes) |r| {
         if (req.head.method == r.method and pathMatch(r.path, requestPath(req))) {
             try invoke(r, ctx, arena, req, opts);
             return true;
+        }
+    }
+    // Then fall back from HEAD to the matching GET handler.
+    if (opts.head_fallback and req.head.method == .HEAD) {
+        inline for (ApiT.routes) |r| {
+            if (r.method == .GET and pathMatch(r.path, requestPath(req))) {
+                try invoke(r, ctx, arena, req, opts);
+                return true;
+            }
         }
     }
     return false;
@@ -86,6 +99,8 @@ fn invoke(
                 return;
             };
             args[i] = .{ .value = v };
+        } else if (comptime markers.isHeader(PT)) {
+            args[i] = .{ .value = helpers.header(req, PT.header_name) };
         } else if (comptime markers.isBody(PT)) {
             // Filled in pass 2.
         } else {
