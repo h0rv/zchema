@@ -241,31 +241,29 @@ z.App(Api, .{
 If you would rather serve the page yourself, `docsHtml`, `writeDocsHtml`, and
 `respondDocs` return, stream, or send the same HTML with the same `DocsOptions`.
 
-## Use with other servers (http.zig, etc.)
+## Validation with any server
 
-The validation and schema layers do not depend on `std.http`; they work on raw
-bytes and Zig types. So even if you serve with another library such as
-[http.zig](https://github.com/karlseguin/http.zig), you can still validate
-requests and responses against your types:
+The validation and schema layers do not depend on `std.http`; they operate on
+raw bytes and Zig types. So with any server, including
+[http.zig](https://github.com/karlseguin/http.zig), you still get request and
+response validation by calling the primitives directly:
 
 ```zig
-// request: validate raw body bytes into a typed value
+// validate a raw request body into a typed value (structured errors on failure)
 const input = try z.parseAndValidate(CreateUser, req.arena, req.body() orelse "", null);
 
-// response: serialize (and optionally validate) a value to JSON bytes
+// serialize a value to JSON bytes, optionally validating it first
 res.body = try z.serializeAndValidate(User, res.arena, user, false);
-res.content_type = .JSON;
 
-// schemas for your own OpenAPI assembly
+// emit a JSON Schema for any type
 const schema = z.schemaText(CreateUser);
 ```
 
-What does not carry over: the dispatcher, the markers, and `App` are tied to
-`std.http.Server.Request` and assume zchema owns routing. http.zig has its own
-router and request/response types, so pairing two routers is not worth it.
-Auto-OpenAPI (`z.openApiJson`) reads a zchema `Api` route table, so full spec
-generation stays with zchema's router; with another server you assemble the
-document from `schemaText`/`schemaName` yourself.
+Routing is the part that is `std.http`-specific: the dispatcher, markers, and
+`App` assume zchema owns the route table, and `z.openApiJson` reads a zchema
+`Api`. With another server you keep its router and use the primitives above; if
+you also want an OpenAPI document, describe the endpoints in a zchema `Api` and
+call `z.openApiJson` on it.
 
 ## Non-JSON behavior
 
