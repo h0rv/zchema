@@ -1,6 +1,6 @@
 //! A full users API: typed bodies, path and query params, multiple response
 //! statuses, a raw non-JSON route, OpenAPI, and a docs UI. The whole server is
-//! the route table plus a `main` that calls `zchema.serve`.
+//! the route table plus a `main` that calls `z.serve`.
 //!
 //! Try:
 //!   curl -s localhost:8080/users -d '{"name":"Ada"}' -H 'content-type: application/json'
@@ -10,7 +10,7 @@
 //!   open  http://localhost:8080/docs
 
 const std = @import("std");
-const zchema = @import("zchema");
+const z = @import("zchema");
 
 const User = struct {
     id: u32,
@@ -30,39 +30,39 @@ const UpdateUser = CreateUser;
 const Id = struct { id: u32 };
 const Page = struct { limit: u32 = 50, offset: u32 = 0 };
 
-const Api = zchema.Api(.{
-    zchema.post("/users", createUser),
-    zchema.get("/users", listUsers),
-    zchema.get("/users/{id}", getUser),
-    zchema.patch("/users/{id}", updateUser),
-    zchema.delete("/users/{id}", deleteUser),
-    zchema.raw(.GET, "/health", health),
+const Api = z.Api(.{
+    z.post("/users", createUser),
+    z.get("/users", listUsers),
+    z.get("/users/{id}", getUser),
+    z.patch("/users/{id}", updateUser),
+    z.delete("/users/{id}", deleteUser),
+    z.raw(.GET, "/health", health),
 });
 
-const Server = zchema.App(Api, .{ .openapi = .{ .title = "Users API", .version = "1.0.0" } });
+const Server = z.App(Api, .{ .openapi = .{ .title = "Users API", .version = "1.0.0" } });
 
 // Markers carry the contract in the signature: Body for the request, Path and
 // Query for params (parsed and validated by the dispatcher), and the return type
 // for the response. `!?User` means 200 with the user or 404.
-fn createUser(store: *Store, body: zchema.Body(CreateUser)) !zchema.Created(User) {
+fn createUser(store: *Store, body: z.Body(CreateUser)) !z.Created(User) {
     return .{ .value = try store.create(body.value.name) };
 }
 
-fn listUsers(store: *Store, page: zchema.Query(Page)) ![]const User {
+fn listUsers(store: *Store, page: z.Query(Page)) ![]const User {
     return store.list(page.value.offset, page.value.limit);
 }
 
-fn getUser(store: *Store, path: zchema.Path(Id)) !?User {
+fn getUser(store: *Store, path: z.Path(Id)) !?User {
     return store.find(path.value.id);
 }
 
-fn updateUser(store: *Store, path: zchema.Path(Id), body: zchema.Body(UpdateUser)) !?User {
+fn updateUser(store: *Store, path: z.Path(Id), body: z.Body(UpdateUser)) !?User {
     return store.update(path.value.id, body.value.name);
 }
 
 // `!?void` is the conventional DELETE: 204 when removed, 404 when it was absent.
 // (Return `!?User` instead for a Stripe-style 200 with the deleted record.)
-fn deleteUser(store: *Store, path: zchema.Path(Id)) !?void {
+fn deleteUser(store: *Store, path: z.Path(Id)) !?void {
     if (store.remove(path.value.id) != null) return {};
     return null;
 }
@@ -74,7 +74,7 @@ fn health(req: *std.http.Server.Request) !void {
 
 pub fn main(init: std.process.Init) !void {
     var store: Store = .{ .gpa = init.gpa };
-    try zchema.serve(Server, init.io, init.gpa, &store, .{ .port = 8080 });
+    try z.serve(Server, init.io, init.gpa, &store, .{ .port = 8080 });
 }
 
 // In-memory store. Owns user names so they outlive the per-request arena.

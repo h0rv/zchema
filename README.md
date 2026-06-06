@@ -1,6 +1,6 @@
 # zchema
 
-Typed HTTP contracts for Zig's standard library.
+Typed, validated JSON APIs and OpenAPI 3.1 for Zig's `std.http.Server`.
 
 `zchema` is a thin layer over `std.http.Server`. It adds JSON request
 parsing, response serialization, JSON Schema validation, and OpenAPI 3.1
@@ -16,7 +16,7 @@ Requires Zig 0.16.0+.
 
 ```sh
 zig fetch --save "git+https://github.com/h0rv/jsonschema.zig.git#v0.1.0"
-zig fetch --save "git+https://github.com/<you>/zchema.git"
+zig fetch --save "git+https://github.com/h0rv/zchema.git"
 ```
 
 Wire both modules into `build.zig`:
@@ -25,6 +25,12 @@ Wire both modules into `build.zig`:
 const jsonschema = b.dependency("jsonschema", .{ .target = target, .optimize = optimize });
 const zchema = b.dependency("zchema", .{ .target = target, .optimize = optimize });
 exe.root_module.addImport("zchema", zchema.module("zchema"));
+```
+
+The snippets below import the module under a short alias:
+
+```zig
+const z = @import("zchema");
 ```
 
 ## Migrating an existing handler
@@ -43,9 +49,9 @@ const input = std.json.parseFromSliceLeaky(Echo, arena, raw, .{}) catch
 becomes:
 
 ```zig
-const input = zchema.jsonBody(Echo, arena, &req, .{}) catch |err|
-    return zchema.respondError(arena, &req, err, .{});
-try zchema.respondJson(Greeting, arena, &req, .ok, .{ .message = input.name }, .{});
+const input = z.jsonBody(Echo, arena, &req, .{}) catch |err|
+    return z.respondError(arena, &req, err, .{});
+try z.respondJson(Greeting, arena, &req, .ok, .{ .message = input.name }, .{});
 ```
 
 `jsonBody` reads the body under a byte limit, validates it against the schema
@@ -65,22 +71,22 @@ parameter and the return type mean, and the same information drives OpenAPI:
   or `!?T` for "200 with T, or 404".
 
 ```zig
-const Api = zchema.Api(.{
-    zchema.post("/users", createUser),
-    zchema.get("/users", listUsers),
-    zchema.get("/users/{id}", getUser),
-    zchema.delete("/users/{id}", deleteUser),
+const Api = z.Api(.{
+    z.post("/users", createUser),
+    z.get("/users", listUsers),
+    z.get("/users/{id}", getUser),
+    z.delete("/users/{id}", deleteUser),
 });
 
-fn createUser(store: *Store, body: zchema.Body(CreateUser)) !zchema.Created(User) {
+fn createUser(store: *Store, body: z.Body(CreateUser)) !z.Created(User) {
     return .{ .value = try store.create(body.value.name) };
 }
 
-fn listUsers(store: *Store, page: zchema.Query(struct { limit: u32 = 50 })) ![]const User {
+fn listUsers(store: *Store, page: z.Query(struct { limit: u32 = 50 })) ![]const User {
     return store.list(page.value.limit);
 }
 
-fn getUser(store: *Store, path: zchema.Path(struct { id: u32 })) !?User {
+fn getUser(store: *Store, path: z.Path(struct { id: u32 })) !?User {
     return store.find(path.value.id); // null -> 404
 }
 ```
@@ -96,27 +102,27 @@ or naming a body type that is not a `Body(T)` param. Declare contracts and attac
 them with `op` (or `route(...).with(...)`):
 
 ```zig
-const CreateUserResponse = zchema.Response(.{
-    zchema.case(.created, User),
-    zchema.case(.unprocessable_entity, zchema.ErrorBody),
+const CreateUserResponse = z.Response(.{
+    z.case(.created, User),
+    z.case(.unprocessable_entity, z.ErrorBody),
 });
 
-const Api = zchema.Api(.{
-    zchema.op(.POST, "/users", createUser, .{ .response = CreateUserResponse }),
+const Api = z.Api(.{
+    z.op(.POST, "/users", createUser, .{ .response = CreateUserResponse }),
 });
 ```
 
 ## Serving
 
-`zchema.serve` owns the accept loop, per-connection lifecycle, and per-request
+`z.serve` owns the accept loop, per-connection lifecycle, and per-request
 arena, with a default 404 for unmatched requests:
 
 ```zig
-const Server = zchema.App(Api, .{ .openapi = .{ .title = "Users API", .version = "1.0.0" } });
+const Server = z.App(Api, .{ .openapi = .{ .title = "Users API", .version = "1.0.0" } });
 
 pub fn main(init: std.process.Init) !void {
     var store: Store = .{ .gpa = init.gpa };
-    try zchema.serve(Server, init.io, init.gpa, &store, .{ .port = 8080 });
+    try z.serve(Server, init.io, init.gpa, &store, .{ .port = 8080 });
 }
 ```
 
@@ -125,11 +131,11 @@ options. For full control over the socket, threading, or non-JSON behavior, skip
 `serve` and call `Server.handle(ctx, arena, &req, .{})` in your own loop; it
 returns `false` when nothing matched.
 
-Non-JSON endpoints live in the same table via `zchema.raw`, which takes the raw
+Non-JSON endpoints live in the same table via `z.raw`, which takes the raw
 request, responds itself, and is excluded from OpenAPI:
 
 ```zig
-zchema.raw(.GET, "/health", health) // fn health(req: *std.http.Server.Request) !void
+z.raw(.GET, "/health", health) // fn health(req: *std.http.Server.Request) !void
 ```
 
 See `examples/users_api.zig` for the full CRUD service in ~120 lines.
@@ -153,8 +159,8 @@ const CreateUser = struct {
 Any registered `Api` generates an OpenAPI 3.1 document:
 
 ```zig
-const doc = try zchema.openApiJson(Api, allocator, .{ .title = "Users API", .version = "1.0.0" });
-// or stream it: try zchema.writeOpenApi(Api, writer, .{});
+const doc = try z.openApiJson(Api, allocator, .{ .title = "Users API", .version = "1.0.0" });
+// or stream it: try z.writeOpenApi(Api, writer, .{});
 ```
 
 Request bodies, response bodies, multiple response cases, and path and query
@@ -170,7 +176,7 @@ test suite, so it stays compliant.
 (`/openapi.json`) and a docs UI (`/docs`), both on by default:
 
 ```zig
-const Server = zchema.App(Api, .{
+const Server = z.App(Api, .{
     .openapi = .{ .title = "Users API", .version = "1.0.0" },
 });
 
@@ -185,7 +191,7 @@ Reserved paths are checked against your routes at comptime, so registering
 things off:
 
 ```zig
-zchema.App(Api, .{
+z.App(Api, .{
     .docs = .{
         .ui = .redoc,            // .scalar (default), .redoc, .swagger_ui, .elements
         .ui_path = "/reference", // default "/docs"
@@ -202,7 +208,7 @@ telemetry) are off by default and configurable, and the CDN URLs are
 overridable so you can pin a version or self-host:
 
 ```zig
-zchema.App(Api, .{
+z.App(Api, .{
     .docs = .{
         .scalar = .{
             .hide_models = true,

@@ -8,7 +8,7 @@
 //!   curl -s localhost:8080/echo -d '{"name":"Ada"}' -H 'content-type: application/json'
 
 const std = @import("std");
-const zchema = @import("zchema");
+const z = @import("zchema");
 
 const Request = std.http.Server.Request;
 
@@ -45,11 +45,11 @@ fn echoStdlib(arena: std.mem.Allocator, req: *Request) !void {
 // After: the same endpoint with helpers. Validation comes from the schema
 // emitted from `Echo`, and the error bodies are structured.
 fn echoContractz(arena: std.mem.Allocator, req: *Request) !void {
-    const input = zchema.jsonBody(Echo, arena, req, .{}) catch |err|
-        return zchema.respondError(arena, req, err, .{});
+    const input = z.jsonBody(Echo, arena, req, .{}) catch |err|
+        return z.respondError(arena, req, err, .{});
 
     const greeting: Greeting = .{ .message = input.name };
-    try zchema.respondJson(Greeting, arena, req, .ok, greeting, .{});
+    try z.respondJson(Greeting, arena, req, .ok, greeting, .{});
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -83,9 +83,9 @@ fn serveConnection(io: std.Io, gpa: std.mem.Allocator, stream: std.Io.net.Stream
         const arena = arena_state.allocator();
 
         // Your own routing stays in charge.
-        if (req.head.method == .POST and zchema.pathEql(&req, "/echo")) {
+        if (req.head.method == .POST and z.pathEql(&req, "/echo")) {
             echoContractz(arena, &req) catch return;
-        } else if (req.head.method == .POST and zchema.pathEql(&req, "/echo-stdlib")) {
+        } else if (req.head.method == .POST and z.pathEql(&req, "/echo-stdlib")) {
             echoStdlib(arena, &req) catch return;
         } else {
             req.respond("not found", .{ .status = .not_found }) catch return;
