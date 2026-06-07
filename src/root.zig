@@ -84,6 +84,9 @@ pub const ResponseCase = contract.ResponseCase;
 // --- OpenAPI ----------------------------------------------------------------
 
 pub const OpenApiOptions = openapi.OpenApiOptions;
+pub const Server = openapi.Server;
+pub const Tag = openapi.Tag;
+pub const SecurityScheme = openapi.SecurityScheme;
 pub const openApiJson = openapi.openApiJson;
 pub const writeOpenApi = openapi.writeOpenApi;
 
@@ -122,6 +125,7 @@ pub const schemaName = validation.schemaName;
 // used with any server (for example http.zig) to validate requests and
 // responses without zchema's dispatcher.
 
+pub const parse = validation.parse;
 pub const parseAndValidate = validation.parseAndValidate;
 pub const validateValue = validation.validateValue;
 pub const serializeAndValidate = validation.serializeAndValidate;

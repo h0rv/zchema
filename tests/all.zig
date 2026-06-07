@@ -375,3 +375,49 @@ test "Header marker injects the request header, case-insensitive" {
     try std.testing.expect(std.mem.indexOf(u8, doc, "\"in\":\"header\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, doc, "x-token") != null);
 }
+
+test "operation and document metadata are emitted and stay OAS-compliant" {
+    const gpa = std.testing.allocator;
+
+    const ApiSpec = zchema.Spec(.{
+        zchema.endpoint(.GET, "/items/{id}", .{
+            .path = struct { id: u32 },
+            .responses = .{zchema.case(.ok, Item)},
+            .summary = "Fetch an item",
+            .description = "Returns one item by id.",
+            .tags = &.{"items"},
+            .deprecated = true,
+        }),
+    });
+
+    const doc = try zchema.openApiJson(ApiSpec, gpa, .{
+        .title = "Items",
+        .version = "1.0.0",
+        .servers = &.{.{ .url = "https://api.example.com", .description = "prod" }},
+        .tags = &.{.{ .name = "items", .description = "Item ops" }},
+        .security_schemes = &.{
+            .{ .api_key = .{ .name = "ApiKeyAuth", .field = "X-API-Key", .in = .header } },
+            .{ .http = .{ .name = "BearerAuth", .scheme = "bearer", .bearer_format = "JWT" } },
+        },
+        .security = &.{"BearerAuth"},
+    });
+    defer gpa.free(doc);
+
+    const schema = try std.json.parseFromSlice(std.json.Value, gpa, oas31_schema, .{});
+    defer schema.deinit();
+    const instance = try std.json.parseFromSlice(std.json.Value, gpa, doc, .{});
+    defer instance.deinit();
+    var v = try jsonschema.Validator.init(gpa, .{});
+    defer v.deinit();
+    try v.setRootSchema(&schema.value);
+    try std.testing.expect(try v.validate(&instance.value, null));
+
+    try std.testing.expect(std.mem.indexOf(u8, doc, "\"summary\":\"Fetch an item\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doc, "\"deprecated\":true") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doc, "\"tags\":[\"items\"]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doc, "\"servers\":[") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doc, "\"securitySchemes\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doc, "\"type\":\"apiKey\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doc, "\"bearerFormat\":\"JWT\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doc, "\"security\":[{\"BearerAuth\":[]}]") != null);
+}

@@ -1,5 +1,7 @@
 # zchema
 
+[![CI](https://github.com/h0rv/zchema/actions/workflows/ci.yml/badge.svg)](https://github.com/h0rv/zchema/actions/workflows/ci.yml)
+
 Typed, validated JSON APIs and OpenAPI 3.1 for Zig's `std.http.Server`.
 
 `zchema` is a thin layer over `std.http.Server`. It adds JSON request
@@ -190,6 +192,24 @@ parameters all come from the registered types. Object schemas are hoisted into
 
 The document is validated against the official OpenAPI 3.1 JSON Schema in the
 test suite, so it stays compliant.
+
+Attach operation metadata with `.with(...)` (or in `endpoint`), and document-level
+metadata through `OpenApiOptions`:
+
+```zig
+const Api = z.Api(.{
+    z.get("/users/{id}", getUser).with(.{ .summary = "Fetch a user", .tags = &.{"users"} }),
+});
+
+const doc = try z.openApiJson(Api, gpa, .{
+    .title = "Users API",
+    .version = "1.0.0",
+    .servers = &.{.{ .url = "https://api.example.com" }},
+    .tags = &.{.{ .name = "users", .description = "User operations" }},
+    .security_schemes = &.{.{ .http = .{ .name = "BearerAuth", .scheme = "bearer", .bearer_format = "JWT" } }},
+    .security = &.{"BearerAuth"},
+});
+```
 
 `openApiJson` is just a renderer over inspectable data. The route table is
 public: walk `Api.routes`, call `operation(route)` for each, and read the request

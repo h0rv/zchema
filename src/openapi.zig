@@ -13,6 +13,49 @@ const validation = @import("validation.zig");
 const Route = routes_mod.Route;
 const Operation = routes_mod.Operation;
 
+/// A server the API is available on.
+pub const Server = struct {
+    url: []const u8,
+    description: ?[]const u8 = null,
+};
+
+/// A top-level tag definition (lets a docs UI group and describe operations).
+pub const Tag = struct {
+    name: []const u8,
+    description: ?[]const u8 = null,
+};
+
+/// A security scheme, emitted under `components.securitySchemes`. `name` is the
+/// component key referenced by `OpenApiOptions.security` and a route's security.
+pub const SecurityScheme = union(enum) {
+    api_key: ApiKey,
+    http: Http,
+
+    /// Where an API key is carried.
+    pub const In = enum { header, query, cookie };
+
+    pub const ApiKey = struct {
+        name: []const u8,
+        /// The header/query/cookie name carrying the key, e.g. "X-API-Key".
+        field: []const u8,
+        in: In = .header,
+    };
+
+    pub const Http = struct {
+        name: []const u8,
+        /// HTTP auth scheme, e.g. "bearer" or "basic".
+        scheme: []const u8,
+        bearer_format: ?[]const u8 = null,
+    };
+
+    /// The component key for this scheme.
+    pub fn key(self: SecurityScheme) []const u8 {
+        return switch (self) {
+            inline else => |s| s.name,
+        };
+    }
+};
+
 /// Document-level OpenAPI options.
 pub const OpenApiOptions = struct {
     title: []const u8 = "API",
@@ -20,6 +63,14 @@ pub const OpenApiOptions = struct {
     description: ?[]const u8 = null,
     /// OpenAPI version string. Defaults to 3.1.1, the latest 3.1 patch.
     openapi_version: []const u8 = "3.1.1",
+    /// Servers the API is available on.
+    servers: []const Server = &.{},
+    /// Top-level tag definitions.
+    tags: []const Tag = &.{},
+    /// Security schemes (emitted under components).
+    security_schemes: []const SecurityScheme = &.{},
+    /// Global security requirement: scheme names that apply to every operation.
+    security: []const []const u8 = &.{},
 };
 
 /// Allocate the OpenAPI document for `ApiT` as a JSON string. Caller owns it.
@@ -49,6 +100,22 @@ pub fn writeOpenApi(comptime ApiT: type, writer: *std.Io.Writer, opts: OpenApiOp
     }
     try writer.writeAll("}");
 
+    // servers
+    if (opts.servers.len > 0) {
+        try writer.writeAll(",\"servers\":[");
+        for (opts.servers, 0..) |s, i| {
+            if (i != 0) try writer.writeByte(',');
+            try writer.writeAll("{\"url\":");
+            try writeString(writer, s.url);
+            if (s.description) |d| {
+                try writer.writeAll(",\"description\":");
+                try writeString(writer, d);
+            }
+            try writer.writeByte('}');
+        }
+        try writer.writeByte(']');
+    }
+
     // paths
     try writer.writeAll(",\"paths\":{");
     const paths = comptime distinctPaths(ops);
@@ -68,26 +135,110 @@ pub fn writeOpenApi(comptime ApiT: type, writer: *std.Io.Writer, opts: OpenApiOp
     }
     try writer.writeAll("}");
 
-    // components/schemas
+    // components: schemas (comptime) and securitySchemes (runtime)
     const comps = comptime componentList(ops);
-    if (comps.len > 0) {
-        try writer.writeAll(",\"components\":{\"schemas\":{");
-        inline for (comps, 0..) |c, ci| {
-            if (ci != 0) try writer.writeByte(',');
-            try writeString(writer, c.name);
-            try writer.writeByte(':');
-            try writer.writeAll(c.text);
+    if (comps.len > 0 or opts.security_schemes.len > 0) {
+        try writer.writeAll(",\"components\":{");
+        var first_section = true;
+        if (comps.len > 0) {
+            try writer.writeAll("\"schemas\":{");
+            inline for (comps, 0..) |c, ci| {
+                if (ci != 0) try writer.writeByte(',');
+                try writeString(writer, c.name);
+                try writer.writeByte(':');
+                try writer.writeAll(c.text);
+            }
+            try writer.writeByte('}');
+            first_section = false;
         }
-        try writer.writeAll("}}");
+        if (opts.security_schemes.len > 0) {
+            if (!first_section) try writer.writeByte(',');
+            try writer.writeAll("\"securitySchemes\":{");
+            for (opts.security_schemes, 0..) |s, i| {
+                if (i != 0) try writer.writeByte(',');
+                try writeSecurityScheme(writer, s);
+            }
+            try writer.writeByte('}');
+        }
+        try writer.writeByte('}');
+    }
+
+    // top-level tag definitions
+    if (opts.tags.len > 0) {
+        try writer.writeAll(",\"tags\":[");
+        for (opts.tags, 0..) |t, i| {
+            if (i != 0) try writer.writeByte(',');
+            try writer.writeAll("{\"name\":");
+            try writeString(writer, t.name);
+            if (t.description) |d| {
+                try writer.writeAll(",\"description\":");
+                try writeString(writer, d);
+            }
+            try writer.writeByte('}');
+        }
+        try writer.writeByte(']');
+    }
+
+    // global security requirement
+    if (opts.security.len > 0) {
+        try writer.writeAll(",\"security\":[");
+        for (opts.security, 0..) |name, i| {
+            if (i != 0) try writer.writeByte(',');
+            try writer.writeByte('{');
+            try writeString(writer, name);
+            try writer.writeAll(":[]}");
+        }
+        try writer.writeByte(']');
     }
 
     try writer.writeAll("}");
+}
+
+fn writeSecurityScheme(writer: *std.Io.Writer, scheme: SecurityScheme) !void {
+    try writeString(writer, scheme.key());
+    try writer.writeByte(':');
+    switch (scheme) {
+        .api_key => |k| {
+            try writer.writeAll("{\"type\":\"apiKey\",\"name\":");
+            try writeString(writer, k.field);
+            try writer.writeAll(",\"in\":");
+            try writeString(writer, @tagName(k.in));
+            try writer.writeByte('}');
+        },
+        .http => |h| {
+            try writer.writeAll("{\"type\":\"http\",\"scheme\":");
+            try writeString(writer, h.scheme);
+            if (h.bearer_format) |bf| {
+                try writer.writeAll(",\"bearerFormat\":");
+                try writeString(writer, bf);
+            }
+            try writer.writeByte('}');
+        },
+    }
 }
 
 fn writeOperation(writer: *std.Io.Writer, comptime o: Operation) !void {
     try writeString(writer, comptime routes_mod.lowerMethod(o.method));
     try writer.writeAll(":{\"operationId\":");
     try writeString(writer, o.operation_id);
+
+    if (o.summary) |s| {
+        try writer.writeAll(",\"summary\":");
+        try writeString(writer, s);
+    }
+    if (o.description) |d| {
+        try writer.writeAll(",\"description\":");
+        try writeString(writer, d);
+    }
+    if (o.tags.len > 0) {
+        try writer.writeAll(",\"tags\":[");
+        inline for (o.tags, 0..) |t, i| {
+            if (i != 0) try writer.writeByte(',');
+            try writeString(writer, t);
+        }
+        try writer.writeByte(']');
+    }
+    if (o.deprecated) try writer.writeAll(",\"deprecated\":true");
 
     // parameters
     if (o.params.len > 0) {

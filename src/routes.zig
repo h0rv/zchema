@@ -25,13 +25,20 @@ pub const Route = struct {
     /// Raw (non-JSON) route: the handler responds itself and the route is
     /// excluded from OpenAPI. Produced by `raw`.
     is_raw: bool = false,
+    /// Optional OpenAPI operation metadata.
+    summary: ?[]const u8 = null,
+    description: ?[]const u8 = null,
+    tags: []const []const u8 = &.{},
+    deprecated: bool = false,
 
-    /// Attach explicit request/response contracts to a route.
+    /// Attach explicit contracts and OpenAPI metadata to a route.
     ///
     /// ```zig
     /// zchema.post("/users", createUser).with(.{
     ///     .request = CreateUserRequest,
     ///     .response = CreateUserResponse,
+    ///     .summary = "Create a user",
+    ///     .tags = &.{"users"},
     /// })
     /// ```
     pub fn with(comptime self: Route, comptime opts: anytype) Route {
@@ -39,6 +46,10 @@ pub const Route = struct {
         var next = self;
         if (@hasField(Opts, "request")) next.request = opts.request;
         if (@hasField(Opts, "response")) next.response = opts.response;
+        if (@hasField(Opts, "summary")) next.summary = opts.summary;
+        if (@hasField(Opts, "description")) next.description = opts.description;
+        if (@hasField(Opts, "tags")) next.tags = opts.tags;
+        if (@hasField(Opts, "deprecated")) next.deprecated = opts.deprecated;
         return next;
     }
 };
@@ -149,6 +160,10 @@ pub const Operation = struct {
     BodyType: ?type,
     params: []const OperationParam,
     responses: []const OperationResponse,
+    summary: ?[]const u8 = null,
+    description: ?[]const u8 = null,
+    tags: []const []const u8 = &.{},
+    deprecated: bool = false,
 };
 
 fn unwrapError(comptime T: type) type {
@@ -330,6 +345,10 @@ pub fn operation(comptime r: Route) Operation {
             .BodyType = body_type,
             .params = params,
             .responses = responses,
+            .summary = r.summary,
+            .description = r.description,
+            .tags = r.tags,
+            .deprecated = r.deprecated,
         };
     }
 }
@@ -389,6 +408,10 @@ pub fn endpoint(comptime method: std.http.Method, comptime path: []const u8, com
             .BodyType = if (@hasField(D, "body")) desc.body else null,
             .params = params,
             .responses = responses,
+            .summary = if (@hasField(D, "summary")) desc.summary else null,
+            .description = if (@hasField(D, "description")) desc.description else null,
+            .tags = if (@hasField(D, "tags")) desc.tags else &.{},
+            .deprecated = if (@hasField(D, "deprecated")) desc.deprecated else false,
         };
     }
 }

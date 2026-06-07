@@ -63,6 +63,39 @@ pub fn schemaName(comptime T: type) []const u8 {
     return comptime jsonschema.schemaName(T, schema_options);
 }
 
+/// The parsed schema document for `T`, built once and cached for the process.
+///
+/// The schema text is a comptime constant, so the parsed `std.json.Value` is
+/// immutable and safe to share read-only across threads. The cache is published
+/// with a lock-free compare-and-swap; under a startup race a few threads may each
+/// parse and all but one leak their copy (bounded, one-time).
+fn cachedSchema(comptime T: type) *const std.json.Value {
+    const Holder = struct {
+        var ptr: std.atomic.Value(?*std.json.Value) = .init(null);
+    };
+    if (Holder.ptr.load(.acquire)) |p| return p;
+
+    // Parse into a process-lifetime arena (intentionally never freed).
+    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const a = arena_state.allocator();
+    const value = a.create(std.json.Value) catch @panic("out of memory caching schema");
+    value.* = std.json.parseFromSliceLeaky(std.json.Value, a, schemaText(T), .{}) catch
+        unreachable; // emitter output is always valid JSON
+
+    if (Holder.ptr.cmpxchgStrong(null, value, .acq_rel, .acquire)) |won| {
+        // Another thread published first; leak ours and use theirs.
+        return won.?;
+    }
+    return value;
+}
+
+/// Parse a JSON request body into `T` without JSON Schema validation. Types and
+/// required fields are still enforced by the parser; constraints (minLength,
+/// formats, additionalProperties, etc.) are not. For trusted or hot paths.
+pub fn parse(comptime T: type, arena: std.mem.Allocator, raw: []const u8) !T {
+    return std.json.parseFromSliceLeaky(T, arena, raw, .{}) catch return Error.InvalidJson;
+}
+
 /// Parse, validate, and deserialize a JSON request body into `T`.
 ///
 /// On validation failure, when `field_errors` is non-null, one `FieldError` per
@@ -88,18 +121,21 @@ pub fn parseAndValidate(
 }
 
 /// Validate an already-parsed `std.json.Value` against the schema for `T`.
+///
+/// The schema document is parsed once per type and cached for the process; only
+/// the per-request `Validator` is rebuilt (it accumulates in its own arena, so
+/// it is not safe to reuse across requests).
 pub fn validateValue(
     comptime T: type,
     arena: std.mem.Allocator,
     instance: *const std.json.Value,
     field_errors: ?*std.ArrayListUnmanaged(FieldError),
 ) !void {
-    const schema = std.json.parseFromSliceLeaky(std.json.Value, arena, schemaText(T), .{}) catch
-        unreachable; // emitter output is always valid JSON
+    const schema = cachedSchema(T);
 
     var v = try jsonschema.Validator.init(arena, .{});
     defer v.deinit();
-    try v.setRootSchema(&schema);
+    try v.setRootSchema(schema);
 
     var verrs: std.ArrayListUnmanaged(jsonschema.ValidationError) = .empty;
     const ok = try v.validate(instance, &verrs);
@@ -211,6 +247,29 @@ test "parseAndValidate reports validation field_errors with pointers" {
     , &field_errors);
     try std.testing.expectError(Error.SchemaValidationFailed, result);
     try std.testing.expect(field_errors.items.len >= 1);
+}
+
+test "parse skips schema validation but still enforces types" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // minLength is skipped: an empty name parses fine without validation.
+    const u = try parse(TestUser, arena,
+        \\{"name":"","age":1}
+    );
+    try std.testing.expectEqualStrings("", u.name);
+    // A type mismatch is still a parse error.
+    try std.testing.expectError(Error.InvalidJson, parse(TestUser, arena,
+        \\{"name":5}
+    ));
+}
+
+test "cachedSchema returns a stable pointer" {
+    const a = cachedSchema(TestUser);
+    const b = cachedSchema(TestUser);
+    try std.testing.expectEqual(a, b);
+    try std.testing.expect(a.* == .object);
 }
 
 test "serializeAndValidate round-trips" {

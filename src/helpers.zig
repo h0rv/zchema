@@ -24,6 +24,10 @@ pub const BodyOptions = struct {
     /// When true (the default), the request Content-Type must be a JSON media
     /// type or `jsonBody` returns `error.UnsupportedContentType`.
     require_json_content_type: bool = true,
+    /// When true (the default), the body is validated against the schema for `T`.
+    /// Set false to skip schema validation on trusted or hot paths (the parser
+    /// still enforces types and required fields).
+    validate: bool = true,
 };
 
 /// Options controlling JSON response serialization.
@@ -144,6 +148,7 @@ pub fn jsonBody(
         return Error.UnsupportedContentType;
 
     const raw = try body(req, arena, opts);
+    if (!opts.validate) return validation.parse(T, arena, raw);
     return validation.parseAndValidate(T, arena, raw, null);
 }
 
@@ -160,6 +165,7 @@ pub fn jsonBodyWithErrors(
         return Error.UnsupportedContentType;
 
     const raw = try body(req, arena, opts);
+    if (!opts.validate) return validation.parse(T, arena, raw);
     return validation.parseAndValidate(T, arena, raw, field_errors);
 }
 
