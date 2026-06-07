@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6 # v6.0.3
+
+      - name: Set up mise
+        uses: jdx/mise-action@v4 # v4.1.0
+
+      - name: Run checks
+        run: mise run check
+
+      - name: Verify install
+        run: mise run verify-install
