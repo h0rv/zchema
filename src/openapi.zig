@@ -163,11 +163,14 @@ fn statusPhrase(comptime status: std.http.Status) []const u8 {
 // --- comptime analysis ------------------------------------------------------
 
 fn assertApi(comptime ApiT: type) void {
-    if (!@hasDecl(ApiT, "routes"))
-        @compileError("openApiJson expects a zchema.Api type");
+    if (!@hasDecl(ApiT, "routes") and !@hasDecl(ApiT, "operations"))
+        @compileError("openApiJson expects a zchema.Api (routes) or zchema.Spec (operations) type");
 }
 
 fn operations(comptime ApiT: type) []const Operation {
+    // A Spec carries operations directly; an Api reflects them from routes.
+    if (@hasDecl(ApiT, "operations")) return &ApiT.operations;
+
     var list: []const Operation = &.{};
     inline for (ApiT.routes) |r| {
         if (r.is_raw) continue; // raw routes are not JSON; not documented

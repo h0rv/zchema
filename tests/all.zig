@@ -306,6 +306,40 @@ test "raw route serves non-JSON and is absent from OpenAPI" {
     try std.testing.expect(std.mem.indexOf(u8, doc, "/items/{id}") != null);
 }
 
+test "Spec builds a compliant OpenAPI document with no handlers" {
+    const gpa = std.testing.allocator;
+
+    const ApiSpec = zchema.Spec(.{
+        zchema.endpoint(.POST, "/items", .{
+            .body = Item,
+            .responses = .{ zchema.case(.created, Item), zchema.case(.bad_request, zchema.ErrorBody) },
+        }),
+        zchema.endpoint(.GET, "/items/{id}", .{
+            .path = struct { id: u32 },
+            .query = struct { verbose: bool = false },
+            .responses = .{ zchema.case(.ok, Item), zchema.case(.not_found, zchema.ErrorBody) },
+        }),
+    });
+
+    const doc = try zchema.openApiJson(ApiSpec, gpa, .{ .title = "Items", .version = "1.0.0" });
+    defer gpa.free(doc);
+
+    const schema = try std.json.parseFromSlice(std.json.Value, gpa, oas31_schema, .{});
+    defer schema.deinit();
+    const instance = try std.json.parseFromSlice(std.json.Value, gpa, doc, .{});
+    defer instance.deinit();
+
+    var v = try jsonschema.Validator.init(gpa, .{});
+    defer v.deinit();
+    try v.setRootSchema(&schema.value);
+    try std.testing.expect(try v.validate(&instance.value, null));
+
+    try std.testing.expect(std.mem.indexOf(u8, doc, "\"/items/{id}\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doc, "\"in\":\"query\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doc, "#/components/schemas/Item") != null);
+    try std.testing.expect(std.mem.indexOf(u8, doc, "\"400\"") != null);
+}
+
 test "HEAD falls back to the matching GET route, body omitted" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();

@@ -334,6 +334,81 @@ pub fn operation(comptime r: Route) Operation {
     }
 }
 
+// --- Handler-free spec building ---------------------------------------------
+
+/// Describe one operation directly, without a handler or the dispatcher. Useful
+/// for generating an OpenAPI document for an API served by some other framework.
+///
+/// ```zig
+/// zchema.endpoint(.POST, "/users", .{
+///     .body = CreateUser,
+///     .responses = .{ zchema.case(.created, User), zchema.case(.bad_request, zchema.ErrorBody) },
+/// })
+/// ```
+///
+/// Descriptor fields (all optional): `.body`, `.path`, `.query`, `.operation_id`,
+/// and either `.responses` (a tuple of `case(...)`) or `.response` (a `Response`).
+pub fn endpoint(comptime method: std.http.Method, comptime path: []const u8, comptime desc: anytype) Operation {
+    comptime {
+        if (path.len == 0 or path[0] != '/') @compileError("endpoint path must start with '/': " ++ path);
+        const D = @TypeOf(desc);
+
+        var params: []const OperationParam = &.{};
+        if (@hasField(D, "path")) params = params ++ pathParamsOf(desc.path);
+        if (@hasField(D, "query")) params = params ++ queryParamsOf(desc.query);
+
+        const responses: []const OperationResponse = blk: {
+            if (@hasField(D, "response")) {
+                const Resp = desc.response;
+                if (!contract.isResponseContract(Resp))
+                    @compileError("endpoint .response must be a zchema.Response(...) type");
+                var arr: [Resp.cases.len]OperationResponse = undefined;
+                for (Resp.cases, 0..) |c, i| arr[i] = .{ .status = c.status, .Type = c.Type };
+                const final = arr;
+                break :blk &final;
+            } else if (@hasField(D, "responses")) {
+                const cases = desc.responses;
+                const fields = std.meta.fields(@TypeOf(cases));
+                var arr: [fields.len]OperationResponse = undefined;
+                for (fields, 0..) |f, i| {
+                    const c: contract.ResponseCase = @field(cases, f.name);
+                    arr[i] = .{ .status = c.status, .Type = c.Type };
+                }
+                const final = arr;
+                break :blk &final;
+            } else {
+                const one = [_]OperationResponse{.{ .status = .ok, .Type = null }};
+                break :blk &one;
+            }
+        };
+
+        return .{
+            .method = method,
+            .path = path,
+            .operation_id = if (@hasField(D, "operation_id")) desc.operation_id else operationId(method, path),
+            .BodyType = if (@hasField(D, "body")) desc.body else null,
+            .params = params,
+            .responses = responses,
+        };
+    }
+}
+
+/// Build an API type from a tuple of `endpoint(...)` operations. The result
+/// exposes `operations: [N]Operation` and is accepted by `openApiJson`, the same
+/// as an `Api` built from routes.
+pub fn Spec(comptime ops_tuple: anytype) type {
+    const fields = std.meta.fields(@TypeOf(ops_tuple));
+    var arr: [fields.len]Operation = undefined;
+    inline for (fields, 0..) |f, i| {
+        arr[i] = @field(ops_tuple, f.name);
+    }
+    const final = arr;
+    return struct {
+        pub const zchema_spec = true;
+        pub const operations: [final.len]Operation = final;
+    };
+}
+
 // --- Tests ------------------------------------------------------------------
 
 const TUser = struct { id: u32, name: []const u8 };

@@ -268,11 +268,28 @@ res.body = try z.serializeAndValidate(User, res.arena, user, false);
 const schema = z.schemaText(CreateUser);
 ```
 
-Routing is the part that is `std.http`-specific: the dispatcher, markers, and
-`App` assume zchema owns the route table, and `z.openApiJson` reads a zchema
-`Api`. With another server you keep its router and use the primitives above; if
-you also want an OpenAPI document, describe the endpoints in a zchema `Api` and
-call `z.openApiJson` on it.
+For an OpenAPI document, declare the endpoints directly with `endpoint`/`Spec`,
+passing your models. No handlers and no dispatcher are involved, so you keep your
+own framework's router and just serve the generated document:
+
+```zig
+const ApiSpec = z.Spec(.{
+    z.endpoint(.POST, "/users", .{
+        .body = CreateUser,
+        .responses = .{ z.case(.created, User), z.case(.bad_request, z.ErrorBody) },
+    }),
+    z.endpoint(.GET, "/users/{id}", .{
+        .path = struct { id: u32 },
+        .responses = .{ z.case(.ok, User), z.case(.not_found, z.ErrorBody) },
+    }),
+});
+
+const doc = try z.openApiJson(ApiSpec, gpa, .{ .title = "Users API", .version = "1.0.0" });
+// serve `doc` from your server at /openapi.json
+```
+
+The dispatcher, markers, and `App` remain `std.http`-specific (they own routing);
+`endpoint`/`Spec` are the handler-free path that works anywhere.
 
 ## Non-JSON behavior
 
