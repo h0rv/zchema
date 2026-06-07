@@ -140,10 +140,13 @@ fn serveConnection(io: std.Io, gpa: std.mem.Allocator, ctx: *Ctx, stream: std.Io
     var sr = stream.reader(io, &recv);
     var sw = stream.writer(io, &send);
     var http = std.http.Server.init(&sr.interface, &sw.interface);
+    // One arena per connection, reset (not freed) between requests so keep-alive
+    // requests reuse the same memory instead of allocating each time.
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
     while (true) {
         var req = http.receiveHead() catch return;
-        var arena_state = std.heap.ArenaAllocator.init(gpa);
-        defer arena_state.deinit();
+        defer _ = arena_state.reset(.retain_capacity);
         const arena = arena_state.allocator();
         if (Server.handle(ctx, arena, &req, .{}) catch return) continue;
         z.respondErrorBody(arena, &req, z.errorBody(.not_found, "No matching route.", &.{}), .{}) catch return;
@@ -310,6 +313,10 @@ const doc = try z.openApiJson(ApiSpec, gpa, .{ .title = "Users API", .version = 
 
 The dispatcher, markers, and `App` remain `std.http`-specific (they own routing);
 `endpoint`/`Spec` are the handler-free path that works anywhere.
+
+`examples/byo_server.zig` is a complete runnable version of this pattern: a
+hand-rolled router that declares a `Spec`, validates bodies with
+`parseAndValidate`, and serves the spec and docs (rendered once) itself.
 
 ## Non-JSON behavior
 

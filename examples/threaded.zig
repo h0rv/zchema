@@ -78,11 +78,13 @@ fn serveConnection(io: std.Io, gpa: std.mem.Allocator, counter: *Counter, stream
     var sw = stream.writer(io, &send);
     var http = std.http.Server.init(&sr.interface, &sw.interface);
 
+    // One arena per connection, reset between requests (see users_api.zig).
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+
     while (true) {
         var req = http.receiveHead() catch return;
-
-        var arena_state = std.heap.ArenaAllocator.init(gpa);
-        defer arena_state.deinit();
+        defer _ = arena_state.reset(.retain_capacity);
         const arena = arena_state.allocator();
 
         if (Server.handle(counter, arena, &req, .{}) catch return) continue;

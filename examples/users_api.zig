@@ -96,11 +96,14 @@ fn serveConnection(io: std.Io, gpa: std.mem.Allocator, store: *Store, stream: st
     var sw = stream.writer(io, &send);
     var http = std.http.Server.init(&sr.interface, &sw.interface);
 
+    // One arena per connection, reset (not freed) between requests: keep-alive
+    // requests reuse the same backing memory instead of allocating each time.
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+
     while (true) {
         var req = http.receiveHead() catch return;
-
-        var arena_state = std.heap.ArenaAllocator.init(gpa);
-        defer arena_state.deinit();
+        defer _ = arena_state.reset(.retain_capacity);
         const arena = arena_state.allocator();
 
         if (Server.handle(store, arena, &req, .{}) catch return) continue;
