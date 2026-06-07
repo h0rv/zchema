@@ -63,30 +63,35 @@ pub fn schemaName(comptime T: type) []const u8 {
     return comptime jsonschema.schemaName(T, schema_options);
 }
 
-/// The parsed schema document for `T`, built once and cached for the process.
+/// The compiled schema for `T`, built once and cached for the process.
 ///
-/// The schema text is a comptime constant, so the parsed `std.json.Value` is
-/// immutable and safe to share read-only across threads. The cache is published
-/// with a lock-free compare-and-swap; under a startup race a few threads may each
-/// parse and all but one leak their copy (bounded, one-time).
-fn cachedSchema(comptime T: type) *const std.json.Value {
+/// The schema text is a comptime constant, so it is parsed and compiled a single
+/// time; the resulting `CompiledSchema` is immutable and validated read-only, so
+/// it is safe to share across threads (each request passes its own scratch).
+/// Published with a lock-free compare-and-swap; under a startup race a few
+/// threads may each compile and all but one leak their copy (bounded, one-time).
+fn cachedCompiled(comptime T: type) *const jsonschema.CompiledSchema {
     const Holder = struct {
-        var ptr: std.atomic.Value(?*std.json.Value) = .init(null);
+        var ptr: std.atomic.Value(?*jsonschema.CompiledSchema) = .init(null);
     };
     if (Holder.ptr.load(.acquire)) |p| return p;
 
-    // Parse into a process-lifetime arena (intentionally never freed).
-    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    // Process-lifetime storage (intentionally never freed): the parsed schema
+    // Value and the compiled schema both live for the whole process.
+    const gpa = std.heap.page_allocator;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
     const a = arena_state.allocator();
-    const value = a.create(std.json.Value) catch @panic("out of memory caching schema");
+    const value = a.create(std.json.Value) catch @panic("out of memory compiling schema");
     value.* = std.json.parseFromSliceLeaky(std.json.Value, a, schemaText(T), .{}) catch
         unreachable; // emitter output is always valid JSON
+    const cs = a.create(jsonschema.CompiledSchema) catch @panic("out of memory compiling schema");
+    cs.* = jsonschema.compile(gpa, value, .{}) catch unreachable;
 
-    if (Holder.ptr.cmpxchgStrong(null, value, .acq_rel, .acquire)) |won| {
+    if (Holder.ptr.cmpxchgStrong(null, cs, .acq_rel, .acquire)) |won| {
         // Another thread published first; leak ours and use theirs.
         return won.?;
     }
-    return value;
+    return cs;
 }
 
 /// Parse a JSON request body into `T` without JSON Schema validation. Types and
@@ -134,21 +139,20 @@ pub fn validateValue(
     instance: *const std.json.Value,
     field_errors: ?*std.ArrayListUnmanaged(FieldError),
 ) !void {
-    const schema = cachedSchema(T);
-
-    var v = try jsonschema.Validator.init(arena, .{});
-    defer v.deinit();
-    try v.setRootSchema(schema);
+    // The schema is compiled once per type; validate read-only using the request
+    // arena as scratch (so error strings are owned by the caller's arena).
+    const cs = cachedCompiled(T);
 
     var verrs: std.ArrayListUnmanaged(jsonschema.ValidationError) = .empty;
-    const ok = try v.validate(instance, &verrs);
+    const ok = try cs.validateScratch(instance, arena, &verrs);
     if (ok) return;
 
     if (field_errors) |p| {
         for (verrs.items) |e| {
+            // e.instance_path and e.message are already allocated in `arena`.
             try p.append(arena, .{
-                .pointer = try arena.dupe(u8, e.instance_path),
-                .message = try friendlyMessage(arena, e.message),
+                .pointer = e.instance_path,
+                .message = friendlyMessage(e.message),
             });
         }
     }
@@ -159,10 +163,10 @@ pub fn validateValue(
 /// caller can act on. zchema only ever emits a `false` subschema via
 /// `additionalProperties: false`, so "schema is false" always means an
 /// unexpected property here.
-fn friendlyMessage(arena: std.mem.Allocator, message: []const u8) ![]const u8 {
+fn friendlyMessage(message: []const u8) []const u8 {
     if (std.mem.eql(u8, message, "schema is false; no value is valid"))
         return "unexpected property";
-    return arena.dupe(u8, message);
+    return message;
 }
 
 /// Serialize `value` to JSON and validate the result against the schema for `T`.
@@ -268,11 +272,10 @@ test "parse skips schema validation but still enforces types" {
     ));
 }
 
-test "cachedSchema returns a stable pointer" {
-    const a = cachedSchema(TestUser);
-    const b = cachedSchema(TestUser);
+test "cachedCompiled returns a stable compiled schema" {
+    const a = cachedCompiled(TestUser);
+    const b = cachedCompiled(TestUser);
     try std.testing.expectEqual(a, b);
-    try std.testing.expect(a.* == .object);
 }
 
 test "serializeAndValidate round-trips" {

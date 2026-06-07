@@ -33,8 +33,8 @@
     // internet connectivity.
     .dependencies = .{
         .jsonschema = .{
-            .url = "git+https://github.com/h0rv/jsonschema.zig.git?ref=v0.1.0#f4516ca0c8e16a8cf6e0bc6ce17d1cc6d4468c94",
-            .hash = "jsonschema-0.1.0-hZhxTkcrBQAmEOWMI5eWmV-reXtevdwj-0ioYTrlPKTX",
+            .url = "git+https://github.com/h0rv/jsonschema.zig.git?ref=v0.2.0#15577ffc8e1b44a5f160ec1580ce273dc10abf50",
+            .hash = "jsonschema-0.2.0-hZhxThhIBQDj6iRkyq5OQdAHBQoIHjHwzyCzqu78BQ2k",
         },
     },
     .paths = .{

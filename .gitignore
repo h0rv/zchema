@@ -1,6 +1,6 @@
 /.agents/skills
 /.claude/skills
-/zig-pkg/jsonschema-0.1.0-hZhxTkcrBQAmEOWMI5eWmV-reXtevdwj-0ioYTrlPKTX
+/zig-pkg
 /.zig-cache
 /zig-out/bin
 /skills-lock.json
