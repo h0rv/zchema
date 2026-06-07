@@ -46,9 +46,10 @@ pub fn handle(
     req: *Request,
     opts: DispatchOptions,
 ) !bool {
+    const actual_path = requestPath(req);
     // Exact method match first (this also honors an explicit HEAD route).
     inline for (ApiT.routes) |r| {
-        if (req.head.method == r.method and pathMatch(r.path, requestPath(req))) {
+        if (req.head.method == r.method and pathMatch(r.path, actual_path)) {
             try invoke(r, ctx, arena, req, opts);
             return true;
         }
@@ -56,7 +57,7 @@ pub fn handle(
     // Then fall back from HEAD to the matching GET handler.
     if (opts.head_fallback and req.head.method == .HEAD) {
         inline for (ApiT.routes) |r| {
-            if (r.method == .GET and pathMatch(r.path, requestPath(req))) {
+            if (r.method == .GET and pathMatch(r.path, actual_path)) {
                 try invoke(r, ctx, arena, req, opts);
                 return true;
             }

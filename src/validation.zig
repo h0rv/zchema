@@ -117,6 +117,9 @@ pub fn parseAndValidate(
     // 4. parse into T only after validation succeeds.
     return std.json.parseFromValueLeaky(T, arena, instance, .{
         .ignore_unknown_fields = true,
+        // Values may alias the already-owned `instance` memory; only copy when
+        // the parser actually needs to.
+        .allocate = .alloc_if_needed,
     }) catch return Error.SchemaValidationFailed;
 }
 

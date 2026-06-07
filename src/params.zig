@@ -120,25 +120,28 @@ fn decode(arena: std.mem.Allocator, s: []const u8) ![]const u8 {
     if (std.mem.indexOfScalar(u8, s, '%') == null and std.mem.indexOfScalar(u8, s, '+') == null)
         return s;
     var out: std.ArrayListUnmanaged(u8) = .empty;
+    // The decoded length is at most the input length, so presize once and skip
+    // per-byte capacity checks below.
+    try out.ensureTotalCapacityPrecise(arena, s.len);
     var i: usize = 0;
     while (i < s.len) : (i += 1) {
         switch (s[i]) {
-            '+' => try out.append(arena, ' '),
+            '+' => out.appendAssumeCapacity(' '),
             '%' => {
                 if (i + 2 < s.len) {
                     const hi = std.fmt.charToDigit(s[i + 1], 16) catch {
-                        try out.append(arena, s[i]);
+                        out.appendAssumeCapacity(s[i]);
                         continue;
                     };
                     const lo = std.fmt.charToDigit(s[i + 2], 16) catch {
-                        try out.append(arena, s[i]);
+                        out.appendAssumeCapacity(s[i]);
                         continue;
                     };
-                    try out.append(arena, @intCast(hi * 16 + lo));
+                    out.appendAssumeCapacity(@intCast(hi * 16 + lo));
                     i += 2;
-                } else try out.append(arena, s[i]);
+                } else out.appendAssumeCapacity(s[i]);
             },
-            else => try out.append(arena, s[i]),
+            else => out.appendAssumeCapacity(s[i]),
         }
     }
     return out.items;
@@ -192,6 +195,21 @@ test "queryParams reports invalid values" {
     try testing.expectError(error.InvalidParameters, queryParams(Pagination, arena, "/x?limit=abc", &errs));
     try testing.expect(errs.items.len == 1);
     try testing.expectEqualStrings("/limit", errs.items[0].pointer);
+}
+
+test "decode handles percent-encoding, plus, and fast path" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // Fast path: no '%' or '+' returns the input slice unchanged.
+    const plain = try decode(arena, "hello");
+    try testing.expectEqualStrings("hello", plain);
+
+    try testing.expectEqualStrings("ada lovelace", try decode(arena, "ada+lovelace"));
+    try testing.expectEqualStrings("a b&c", try decode(arena, "a%20b%26c"));
+    // A trailing, truncated percent escape is passed through literally.
+    try testing.expectEqualStrings("x%2", try decode(arena, "x%2"));
 }
 
 test "pathParams extracts and coerces typed segments" {

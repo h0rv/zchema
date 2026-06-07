@@ -233,20 +233,33 @@ pub fn respondJsonRaw(
     payload: []const u8,
     opts: ResponseOptions,
 ) !void {
-    const headers = try arena.alloc(std.http.Header, opts.extra_headers.len + 1);
-    headers[0] = .{ .name = "content-type", .value = opts.content_type };
-    @memcpy(headers[1..], opts.extra_headers);
-
     // A body-bearing request (POST/PUT/PATCH) with no content-length and no
     // chunked encoding has an unframed body that cannot be kept alive; std.http
     // would assert (unreachable) while trying to discard it. Close instead.
     const unframed_body = req.head.method.requestHasBody() and
         req.head.transfer_encoding == .none and
         req.head.content_length == null;
+    const keep_alive = opts.keep_alive and !unframed_body;
+
+    if (opts.extra_headers.len == 0) {
+        // No extra headers: avoid the per-response allocation. A stack array is
+        // valid for the duration of the respond call.
+        var hdrs = [_]std.http.Header{.{ .name = "content-type", .value = opts.content_type }};
+        try req.respond(payload, .{
+            .status = status,
+            .keep_alive = keep_alive,
+            .extra_headers = &hdrs,
+        });
+        return;
+    }
+
+    const headers = try arena.alloc(std.http.Header, opts.extra_headers.len + 1);
+    headers[0] = .{ .name = "content-type", .value = opts.content_type };
+    @memcpy(headers[1..], opts.extra_headers);
 
     try req.respond(payload, .{
         .status = status,
-        .keep_alive = opts.keep_alive and !unframed_body,
+        .keep_alive = keep_alive,
         .extra_headers = headers,
     });
 }
