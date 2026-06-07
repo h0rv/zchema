@@ -70,22 +70,63 @@ pub fn App(comptime ApiT: type, comptime cfg: ServeConfig) type {
             if (cfg.docs.enabled and getlike) {
                 const path = helpers.targetPath(req);
                 if (std.mem.eql(u8, path, cfg.docs.spec_path)) {
-                    const doc = try openapi.openApiJson(ApiT, arena, cfg.openapi);
-                    try helpers.respondJsonRaw(arena, req, .ok, doc, .{});
+                    try helpers.respondJsonRaw(arena, req, .ok, specJson(), .{});
                     return true;
                 }
                 if (std.mem.eql(u8, path, cfg.docs.ui_path)) {
-                    try docs_mod.respondDocs(arena, req, .{
-                        .title = cfg.docs.title orelse cfg.openapi.title,
-                        .ui = cfg.docs.ui,
-                        .spec_url = cfg.docs.spec_path,
-                        .scalar = cfg.docs.scalar,
-                        .assets = cfg.docs.assets,
+                    try req.respond(docsHtmlCached(), .{
+                        .extra_headers = &.{.{ .name = "content-type", .value = docs_mod.html_content_type }},
                     });
                     return true;
                 }
             }
             return false;
+        }
+
+        // `ApiT` and `cfg` are comptime, so the OpenAPI JSON and docs HTML are
+        // process-constant. Render each once into a process-lifetime arena
+        // (intentionally never freed) and publish the bytes with a lock-free
+        // compare-and-swap, mirroring `validation.cachedSchema`. The published
+        // slice is immutable and safe to share read-only across threads. Under a
+        // startup race a few threads may each render and all but one leak their
+        // copy (bounded, one-time). The cache state lives in `var` declarations
+        // on this struct, and each `App(...)` instantiation is its own type, so
+        // these statics are per-App.
+
+        var spec_cache: std.atomic.Value(?*[]const u8) = .init(null);
+        var docs_cache: std.atomic.Value(?*[]const u8) = .init(null);
+
+        fn publish(cache: *std.atomic.Value(?*[]const u8), bytes: []const u8) []const u8 {
+            var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+            const a = arena_state.allocator();
+            const slot = a.create([]const u8) catch @panic("out of memory caching docs/spec");
+            slot.* = bytes;
+            if (cache.cmpxchgStrong(null, slot, .acq_rel, .acquire)) |won| {
+                // Another thread published first; leak ours and use theirs.
+                return won.?.*;
+            }
+            return slot.*;
+        }
+
+        /// The cached OpenAPI JSON document, rendered once for the process.
+        fn specJson() []const u8 {
+            if (spec_cache.load(.acquire)) |p| return p.*;
+            const doc = openApiJson(std.heap.page_allocator) catch
+                @panic("failed to render OpenAPI document");
+            return publish(&spec_cache, doc);
+        }
+
+        /// The cached docs HTML page, rendered once for the process.
+        fn docsHtmlCached() []const u8 {
+            if (docs_cache.load(.acquire)) |p| return p.*;
+            const html = docs_mod.docsHtml(std.heap.page_allocator, .{
+                .title = cfg.docs.title orelse cfg.openapi.title,
+                .ui = cfg.docs.ui,
+                .spec_url = cfg.docs.spec_path,
+                .scalar = cfg.docs.scalar,
+                .assets = cfg.docs.assets,
+            }) catch @panic("failed to render docs HTML");
+            return publish(&docs_cache, html);
         }
 
         /// Allocate the OpenAPI document for this app's API and config.
@@ -145,6 +186,22 @@ test "App serves the spec endpoint by default" {
     const resp = try run(arena, TestApp, "GET /openapi.json HTTP/1.1\r\n\r\n");
     try std.testing.expect(std.mem.indexOf(u8, resp, "200 OK") != null);
     try std.testing.expect(std.mem.indexOf(u8, resp, "\"openapi\":\"3.1.1\"") != null);
+}
+
+test "App caches the spec: identical bytes and stable pointer" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const resp1 = try run(arena, TestApp, "GET /openapi.json HTTP/1.1\r\n\r\n");
+    const resp2 = try run(arena, TestApp, "GET /openapi.json HTTP/1.1\r\n\r\n");
+    try std.testing.expectEqualStrings(resp1, resp2);
+
+    // The cached slice is the same pointer/len across calls.
+    const a = TestApp.specJson();
+    const b = TestApp.specJson();
+    try std.testing.expectEqual(a.ptr, b.ptr);
+    try std.testing.expectEqual(a.len, b.len);
 }
 
 test "App serves the docs UI by default" {
