@@ -46,8 +46,3 @@ run = "zig build test -Dzio=true"
 description = "Run the catalog with the optional pinned Zio runtime"
 dir = "examples/ssr_htmx"
 run = "zig build run-zio -Dzio=true"
-
-[tasks.benchmark]
-description = "Build ReleaseFast variants and run repeated loopback comparisons"
-dir = "examples/ssr_htmx"
-run = ["zig build benchmark -Dzio=true -Doptimize=ReleaseFast", "bash benchmark.sh"]

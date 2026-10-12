@@ -42,15 +42,4 @@ pub fn build(b: *std.Build) void {
         tests.step.dependOn(templates);
         test_step.dependOn(&b.addRunArtifact(tests).step);
     }
-    const bench = b.addExecutable(.{
-        .name = "catalog-bench",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/bench.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    const install_bench = b.addInstallArtifact(bench, .{});
-    b.step("benchmark", "Build both requested server variants and the Zig load generator").dependOn(&install_bench.step);
-    b.top_level_steps.get("benchmark").?.step.dependOn(b.getInstallStep());
 }

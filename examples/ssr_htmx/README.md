@@ -34,20 +34,17 @@ Handlers receive a `http.Context` with a borrowed arena and `html` helper. `http
 
 The default executable uses Zig 0.16.0's `std.process.Init.io`. Zt writes to `std.Io.Writer`; zchema works with `std.http.Server.Request`. Neither chooses an I/O backend. Both executable variants use the same `std.Io.Group.concurrent` accept loop and one request per connection. Each task owns its socket and request arena. Cancellation of the accept loop cancels and joins outstanding tasks before destroying the listener/runtime. There are no connection deadlines or admission limits; this remains a small demo. The CLI does not install a graceful OS-signal handler.
 
-## Optional Zio experiment
+## Optional Zio runtime
 
-[Zio](https://github.com/lalinsky/zio) v0.19.1 is pinned as a lazy, example-only dependency. Its released `Runtime.io()` really substitutes for `std.Io`; it does not replace HTTP parsing, routes, templates, or allocators. Default Zio uses one executor, while `std.Io.Threaded` dynamically schedules workers. The two runtimes are not equivalent scheduling configurations.
+[Zio](https://github.com/lalinsky/zio) v0.19.1 is a lazy, example-only dependency. Enable it to run the same HTTP handlers and templates with `Runtime.io()`:
 
 ```sh
-zig build test -Dzio=true # run the same tests under both runtimes
+zig build test -Dzio=true # test both runtimes
 zig build run-zio -Dzio=true
-# From repository root: mise run test-zio / mise run ssr-zio
 ```
 
-Tests cancel a blocked socket read and shut down the accept/task group during an active handler, asserting socket closure and allocator cleanup under both runtimes. An independent watchdog bounds hangs. Generic `ReadFailed`/`WriteFailed` erase concrete socket errors, so the connection owner restores `Canceled` from its reader/writer. Zchema now propagates those transport errors, including body-read failures, instead of attempting another HTTP error response. Ordinary application errors still produce HTTP 500.
+From the repository root, use `mise run test-zio` and `mise run ssr-zio`. Without `-Dzio=true`, this package uses the standard runtime and does not fetch Zio.
 
-For reproducible loopback measurements, see [BENCHMARKS.md](BENCHMARKS.md). The optional external load generator is written in Zig and runs identically for both servers; Bash only starts/stops processes and records results. No Python is required.
+The tests cover blocked socket reads and cancellation during an active handler, checking socket closure and request-arena cleanup on both runtimes. The connection owner recovers `Canceled` from concrete stream errors when `ReadFailed` or `WriteFailed` erases it. Zchema propagates these transport errors without attempting another response; ordinary application errors still produce HTTP 500.
 
-[Dusty](https://github.com/lalinsky/dusty) has its own request, response, and router types. It cannot directly replace `std.http.Server` underneath `z.App`. A Dusty integration would use zchema's server-independent `parseAndValidate`, `serializeAndValidate`, and `Spec`/`endpoint` helpers, as the existing `../byo_server/src/main.zig` example illustrates. Datastar could consume templates through a separate response adapter, but its protocol is not implemented here. No performance claims are made.
-
-The latest stable Zig release is 0.17.0, but this checkout remains on 0.16.0: released jsonschema v0.2.0 still uses the removed `Build.args` API. Updating the compiler without compatible dependency releases does not currently build. Zt v0.2.0 and jsonschema v0.2.0 are their latest released versions. Zio v0.19.1 is also its latest release and targets Zig 0.16; its I/O vtable does not compile against 0.17. The experiment uses released compatible versions rather than tracking main or nightly.
+Use the repository's pinned Zig 0.16.0 toolchain. Zio v0.19.1 targets that version. The example's HTTP task group has no admission limits or connection deadlines, and the executable does not install an OS-signal handler for graceful shutdown.
