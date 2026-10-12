@@ -362,6 +362,10 @@ zig build run-users_api
 zig build run-migration
 ```
 
+### Server-rendered HTML and HTMX
+
+The standalone [catalog example](examples/ssr_htmx) combines a typed JSON API with `zt` templates and HTMX fragments, sharing the same search types and application function. Its template dependency is isolated from the library.
+
 ## License
 
 [MIT](LICENSE)
