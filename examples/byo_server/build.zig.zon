@@ -1,0 +1,8 @@
+.{
+    .name = .byo_server_example,
+    .fingerprint = 0x209512c6f56b0fc5,
+    .version = "0.0.0",
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{ .zchema = .{ .path = "../.." } },
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}

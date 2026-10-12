@@ -1,0 +1,8 @@
+.{
+    .name = .introspect_example,
+    .fingerprint = 0xdf383cf184383f5b,
+    .version = "0.0.0",
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{ .zchema = .{ .path = "../.." } },
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}

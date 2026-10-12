@@ -21,7 +21,15 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(exe);
     const run = b.addRunArtifact(exe);
     b.step("run", "Serve the catalog on 127.0.0.1:8080").dependOn(&run.step);
-    const tests = b.addTest(.{ .root_module = mod });
+    const tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("src/tests.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "zchema", .module = zchema.module("zchema") },
+            .{ .name = "zt", .module = templates_dep.module("zt") },
+        },
+    }) });
     tests.step.dependOn(templates);
     b.step("test", "Test search, escaping, and OpenAPI").dependOn(&b.addRunArtifact(tests).step);
 }

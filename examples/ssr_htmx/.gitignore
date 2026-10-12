@@ -1,5 +1,4 @@
 .zig-cache/
 zig-out/
 src/pages.zig
-__pycache__/
 zig-pkg/

@@ -1,6 +1,6 @@
 //! A full users API. zchema owns the contracts (typed bodies, path and query
 //! params, responses, validation, OpenAPI, docs); you own the server loop. This
-//! file shows the simple single-threaded loop. For concurrency, see threaded.zig.
+//! file shows the simple single-threaded loop. For concurrency, see ../../threaded/src/main.zig.
 //!
 //! Try:
 //!   curl -s localhost:8080/users -d '{"name":"Ada"}' -H 'content-type: application/json'

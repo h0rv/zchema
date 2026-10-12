@@ -1,0 +1,8 @@
+.{
+    .name = .threaded_example,
+    .fingerprint = 0x68bb5cc0dab7da67,
+    .version = "0.0.0",
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{ .zchema = .{ .path = "../.." } },
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}

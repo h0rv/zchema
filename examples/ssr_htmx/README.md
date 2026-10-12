@@ -7,8 +7,6 @@ A standalone example combining zchema's typed JSON routes with [zt](https://gith
 cd examples/ssr_htmx
 zig build test
 zig build run
-# In another terminal:
-python3 test_http.py
 ```
 
 Open http://127.0.0.1:8080. Search works as an ordinary GET form without JavaScript. When the pinned HTMX CDN script loads, submitting updates only the results. Visit `/api/catalog?q=HTTP&category=books` for the same search as JSON, `/openapi.json` for its generated contract, and `/docs` for the docs UI.
@@ -19,7 +17,8 @@ Open http://127.0.0.1:8080. Search works as an ordinary GET form without JavaScr
 | `z.get` + `z.Query(Search)` | Parse typed query parameters, serialize JSON, generate OpenAPI |
 | `z.raw` | Compose an HTML route alongside JSON routes; omitted from OpenAPI |
 | `pages.zt` | Type-checked presentation with default text/attribute escaping |
-| `serve(io, allocator)` | Own sockets, HTTP connections, and the runtime choice |
+| `http.zig` | Own sockets and one arena per request; expose a borrowed context and HTML response helper |
+| `main.zig` | Select `std.Io` and start the server |
 
 The HTML route returns a full document normally and a results fragment for `HX-Request: true`. Both responses include `Vary: HX-Request`. Output is buffered in a request arena before writing HTTP headers. User text is never inserted as raw HTML. The catalog deliberately contains a script-looking title to exercise escaping.
 
@@ -27,10 +26,16 @@ The browser's `maxlength` is a convenience, not server-side validation. Zchema q
 
 ## Dependencies and runtime boundaries
 
-This package uses the repository via a relative path and pins zt to `fe662f38c5f5d493c5397342ffd9ed438af3b7c9` (0.2.0 source). Zt stays an example-only dependency; the root library and existing examples do not acquire a template compiler. Its generated `src/pages.zig` is ignored and regenerated before both build and test. HTMX 2.0.8 is loaded from jsDelivr; the ordinary form works if that external asset is unavailable.
+This package uses the repository via a relative path and pins zt to `fe662f38c5f5d493c5397342ffd9ed438af3b7c9` (0.2.0 source). Zt stays an example-only dependency; the root library and existing examples do not acquire a template compiler. The `v0.2.0` tag resolves to that exact pin. Its generated `src/pages.zig` is ignored and regenerated before both build and test. HTMX 2.0.8 is loaded from jsDelivr; the ordinary form works if that external asset is unavailable.
+
+`zig build test` includes real TCP exchanges on ephemeral loopback ports, malformed parameters, URL decoding, full pages versus fragments, routes/OpenAPI, and connection closure. The test allocator verifies per-request memory is released. No Python or browser tooling is required.
+
+Handlers receive a `http.Context` with a borrowed arena and `html` helper. `http.zig` creates and destroys the arena around each response; request data must not escape that scope.
 
 The executable uses Zig 0.16.0's `std.process.Init.io`. Zt writes to `std.Io.Writer`; zchema works with `std.http.Server.Request`. Neither chooses an I/O backend. This intentionally serial demo handles one request per connection and closes it, avoiding an idle keep-alive connection monopolizing the loop. It has no connection deadlines or production concurrency policy.
 
 [Zio](https://github.com/lalinsky/zio) implements `std.Io`, so it belongs at the `serve` boundary. Its current main branch requires Zig 0.17; Zig 0.16 users need the project's 0.19.x line or `zig-0.16` branch. This example does not include or test zio. Runtime substitution also needs cancellation/shutdown verification: zchema currently translates handler errors to HTTP 500, and generic writer failures may hide underlying transport cancellation.
 
-[Dusty](https://github.com/lalinsky/dusty) has its own request, response, and router types. It cannot directly replace `std.http.Server` underneath `z.App`. A Dusty integration would use zchema's server-independent `parseAndValidate`, `serializeAndValidate`, and `Spec`/`endpoint` helpers, as the existing `byo_server.zig` example illustrates. Datastar could consume templates through a separate response adapter, but its protocol is not implemented here. No performance claims are made.
+[Dusty](https://github.com/lalinsky/dusty) has its own request, response, and router types. It cannot directly replace `std.http.Server` underneath `z.App`. A Dusty integration would use zchema's server-independent `parseAndValidate`, `serializeAndValidate`, and `Spec`/`endpoint` helpers, as the existing `../byo_server/src/main.zig` example illustrates. Datastar could consume templates through a separate response adapter, but its protocol is not implemented here. No performance claims are made.
+
+The latest stable Zig release is 0.17.0, but this checkout remains on 0.16.0: released jsonschema v0.2.0 still uses the removed `Build.args` API. Updating the compiler without compatible dependency releases does not currently build. Zt v0.2.0 and jsonschema v0.2.0 are their latest released versions.

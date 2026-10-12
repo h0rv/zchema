@@ -20,11 +20,15 @@ jobs:
       - name: Verify install
         run: mise run verify-install
 
-  ssr-htmx:
+  examples:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        example: [users_api, threaded, introspect, byo_server, ssr_htmx]
     defaults:
       run:
-        working-directory: examples/ssr_htmx
+        working-directory: examples/${{ matrix.example }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6 # v6.0.3
@@ -32,20 +36,7 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@v4 # v4.1.0
 
-      - name: Build and test the standalone HTML example
+      - name: Build and test the standalone example
         run: |
           zig build test
           zig build
-
-      - name: Verify HTTP behavior
-        run: |
-          ./zig-out/bin/ssr-htmx &
-          server_pid=$!
-          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
-          for attempt in {1..50}; do
-            if curl --fail --silent http://127.0.0.1:8080/api/catalog >/dev/null; then
-              break
-            fi
-            sleep 0.1
-          done
-          python3 test_http.py

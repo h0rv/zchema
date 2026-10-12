@@ -2,31 +2,37 @@
 zig = "0.16.0"
 
 [tasks.fmt]
-description = "Format Zig sources"
+description = "Format library and standalone example sources"
 run = [
-  "zig fmt build.zig src tests examples",
-  "zig fmt --zon build.zig.zon",
+  "zig fmt build.zig src tests",
+  "zig fmt --zon build.zig.zon tests/consumer/build.zig.zon",
+  "for example in examples/*; do zig fmt \"$example/build.zig\" \"$example/src\"; zig fmt --zon \"$example/build.zig.zon\"; done",
 ]
 
 [tasks.fmt-check]
-description = "Check Zig formatting"
+description = "Check library and standalone example formatting"
 run = [
-  "zig fmt --check --ast-check build.zig src tests examples",
-  "zig fmt --check --zon build.zig.zon",
+  "zig fmt --check --ast-check build.zig src tests",
+  "zig fmt --check --zon build.zig.zon tests/consumer/build.zig.zon",
+  "for example in examples/*; do zig fmt --check --ast-check \"$example/build.zig\" \"$example/src\"; zig fmt --check --zon \"$example/build.zig.zon\"; done",
 ]
 
-[tasks.lint]
-description = "Run static checks"
-depends = ["fmt-check"]
-
 [tasks.test]
-description = "Run test suite"
-run = "zig build test"
+description = "Run library tests and every standalone example's Zig tests"
+run = [
+  "zig build test",
+  "for example in examples/*; do (cd \"$example\" && zig build test) || exit; done",
+]
 
 [tasks.verify-install]
-description = "Build a consumer that depends on zchema alone (jsonschema is transitive)"
+description = "Build a consumer that depends on zchema alone"
 run = "cd tests/consumer && zig build"
 
 [tasks.check]
-description = "Run formatting checks and tests"
-depends = ["lint", "test"]
+description = "Check formatting, tests, and consumer installation"
+depends = ["fmt-check", "test", "verify-install"]
+
+[tasks.ssr]
+description = "Run the SSR and HTMX catalog on localhost:8080"
+dir = "examples/ssr_htmx"
+run = "zig build run"
