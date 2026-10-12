@@ -4,6 +4,11 @@
     .version = "0.0.0",
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
+        .zio = .{
+            .url = "git+https://github.com/lalinsky/zio.git?ref=v0.19.1#4daa0c0a9522a37c4d28e3dcec2515cc955abe71",
+            .hash = "zio-0.19.1-xHbVVJXzKwAKLRAABWeDvQG9Dg1kf9FM3haWG0YqtScn",
+            .lazy = true,
+        },
         .zchema = .{ .path = "../.." },
         .zt = .{
             .url = "git+https://github.com/lalinsky/zt.git?ref=v0.2.0#fe662f38c5f5d493c5397342ffd9ed438af3b7c9",

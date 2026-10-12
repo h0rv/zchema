@@ -116,6 +116,7 @@ fn invoke(
         if (comptime markers.isBody(PT)) {
             var body_errors: std.ArrayListUnmanaged(errors.FieldError) = .empty;
             const parsed = helpers.jsonBodyWithErrors(PT.Inner, arena, req, opts.body, &body_errors) catch |err| {
+                if (isTransportFailure(err)) return err;
                 try respondError(arena, req, err, body_errors.items, opts.response);
                 return;
             };
@@ -124,6 +125,7 @@ fn invoke(
     }
 
     const ret = @call(.auto, r.Handler.call, args) catch |err| {
+        if (isTransportFailure(err)) return err;
         std.log.scoped(.zchema).err("handler for {s} {s} failed: {s}", .{
             @tagName(r.method), r.path, @errorName(err),
         });
@@ -219,4 +221,10 @@ test "pathMatch handles templates" {
     try std.testing.expect(!pathMatch("/users/{id}", "/users/"));
     try std.testing.expect(pathMatch("/users/{id}/posts", "/users/42/posts"));
     try std.testing.expect(!pathMatch("/users/{id}/posts", "/users/42/comments"));
+}
+
+// Leave cancellation and erased socket failures to the owner of the Io
+// reader/writer. Writing a 500 here can consume cancellation or write twice.
+fn isTransportFailure(err: anyerror) bool {
+    return err == error.Canceled or err == error.ReadFailed or err == error.WriteFailed;
 }

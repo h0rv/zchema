@@ -36,3 +36,13 @@ depends = ["fmt-check", "test", "verify-install"]
 description = "Run the SSR and HTMX catalog on localhost:8080"
 dir = "examples/ssr_htmx"
 run = "zig build run"
+
+[tasks.test-zio]
+description = "Run SSR HTTP and cancellation tests under both runtimes"
+dir = "examples/ssr_htmx"
+run = "zig build test -Dzio=true"
+
+[tasks.ssr-zio]
+description = "Run the catalog with the optional pinned Zio runtime"
+dir = "examples/ssr_htmx"
+run = "zig build run-zio -Dzio=true"

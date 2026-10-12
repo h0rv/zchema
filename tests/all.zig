@@ -421,3 +421,50 @@ test "operation and document metadata are emitted and stay OAS-compliant" {
     try std.testing.expect(std.mem.indexOf(u8, doc, "\"bearerFormat\":\"JWT\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, doc, "\"security\":[{\"BearerAuth\":[]}]") != null);
 }
+
+test "dispatcher propagates cancellation and transport failures without writing a response" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    inline for (.{ error.Canceled, error.ReadFailed, error.WriteFailed }) |failure| {
+        const Handler = struct {
+            fn run() anyerror!void {
+                return failure;
+            }
+        };
+        const CanceledApi = zchema.Api(.{zchema.raw(.GET, "/cancel", Handler.run)});
+        var input = std.Io.Reader.fixed("GET /cancel HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+        defer output.deinit();
+        var server = std.http.Server.init(&input, &output.writer);
+        var req = try server.receiveHead();
+        try std.testing.expectError(failure, zchema.handle(CanceledApi, {}, arena_state.allocator(), &req, .{}));
+        try std.testing.expectEqual(@as(usize, 0), output.written().len);
+    }
+}
+
+test "body read failure propagates without invoking the handler or writing HTTP" {
+    const FailingReader = struct {
+        fn stream(_: *std.Io.Reader, _: *std.Io.Writer, _: std.Io.Limit) std.Io.Reader.StreamError!usize {
+            return error.ReadFailed;
+        }
+    };
+    const Handler = struct {
+        var called = false;
+        fn run(body_value: zchema.Body(CreateUser)) !User {
+            called = true;
+            return .{ .id = 1, .name = body_value.value.name };
+        }
+    };
+    const BodyApi = zchema.Api(.{zchema.post("/users", Handler.run)});
+    var bytes = "POST /users HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n".*;
+    var input: std.Io.Reader = .{ .vtable = &.{ .stream = FailingReader.stream }, .buffer = &bytes, .seek = 0, .end = bytes.len };
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var server = std.http.Server.init(&input, &output.writer);
+    var req = try server.receiveHead();
+    try std.testing.expectError(error.ReadFailed, zchema.handle(BodyApi, {}, arena.allocator(), &req, .{}));
+    try std.testing.expect(!Handler.called);
+    try std.testing.expectEqual(@as(usize, 0), output.written().len);
+}
