@@ -1,0 +1,44 @@
+const catalog = @import("catalog.zig");
+
+pub templ Results(query: catalog.Search, items: []const catalog.Item) {
+    <section id="results" aria-live="polite">
+        <h2>Results for “{query.q}”</h2>
+        <p>{items.len} matches</p>
+        <ul>
+            for (items) |item| {
+                <li>{item.name} <small>({@tagName(item.category)})</small></li>
+            }
+        </ul>
+    </section>
+}
+
+pub templ Page(query: catalog.Search, items: []const catalog.Item) {
+    <!DOCTYPE html>
+    <html lang="en">
+        <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>Zchema + zt catalog</title>
+            <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js" integrity="sha384-/TgkGk7p307TH7EXJDuUlgG3Ce1UVolAOFopFekQkkXihi5u/6OCvVKyz1W+idaz" crossorigin="anonymous" defer></script>
+        </head>
+        <body>
+            <main>
+                <h1>Catalog search</h1>
+                <p>Server-rendered HTML and a typed JSON API share one search function.</p>
+                <form action="/" method="get" hx-get="/" hx-target="#results" hx-swap="outerHTML">
+                    <label for="q">Search</label>
+                    <input id="q" name="q" value={query.q} maxlength="200" />
+                    <label for="category">Category</label>
+                    <select id="category" name="category">
+                        <option value="all" selected?={query.category == .all}>All</option>
+                        <option value="books" selected?={query.category == .books}>Books</option>
+                        <option value="tools" selected?={query.category == .tools}>Tools</option>
+                    </select>
+                    <button type="submit">Search</button>
+                </form>
+                @Results(query, items)
+                <p><a href="/api/catalog">JSON API</a> · <a href="/docs">OpenAPI docs</a></p>
+            </main>
+        </body>
+    </html>
+}

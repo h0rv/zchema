@@ -154,7 +154,7 @@ fn serveConnection(io: std.Io, gpa: std.mem.Allocator, ctx: *Ctx, stream: std.Io
 }
 ```
 
-`examples/users_api.zig` is the full single-threaded version; `examples/threaded.zig`
+`examples/users_api/src/main.zig` is the full single-threaded version; `examples/threaded/src/main.zig`
 runs a fixed pool of worker threads accepting on a shared socket (the default
 `init.io` is `std.Io.Threaded`, which is safe to share across threads). For an
 event loop, drive `handle` from a single-threaded io_uring/kqueue reactor.
@@ -217,7 +217,7 @@ const doc = try z.openApiJson(Api, gpa, .{
 `openApiJson` is just a renderer over inspectable data. The route table is
 public: walk `Api.routes`, call `operation(route)` for each, and read the request
 body, params, and response models. Use that to build your own artifacts (a custom
-spec, client codegen, a route listing). See `examples/introspect.zig`.
+spec, client codegen, a route listing). See `examples/introspect/src/main.zig`.
 
 ## App: spec and docs on by default
 
@@ -314,7 +314,7 @@ const doc = try z.openApiJson(ApiSpec, gpa, .{ .title = "Users API", .version = 
 The dispatcher, markers, and `App` remain `std.http`-specific (they own routing);
 `endpoint`/`Spec` are the handler-free path that works anywhere.
 
-`examples/byo_server.zig` is a complete runnable version of this pattern: a
+`examples/byo_server/src/main.zig` is a complete runnable version of this pattern: a
 hand-rolled router that declares a `Spec`, validates bodies with
 `parseAndValidate`, and serves the spec and docs (rendered once) itself.
 
@@ -354,13 +354,44 @@ Declare your own error body types as response cases when you need more.
 
 ## Develop
 
+From a fresh checkout, use the existing mise toolchain configuration:
+
+```sh
+mise install
+mise run check
+mise run ssr
+```
+
+Then open http://127.0.0.1:8080. `check` covers library tests, all standalone
+example tests (including loopback HTTP), formatting, and the consumer build.
+The pinned Zig 0.16.0 is currently the latest compatible stable compiler:
+Zig 0.17.0 is released, but jsonschema v0.2.0 still uses its removed `Build.args` API.
+
+Additional commands:
+
 ```sh
 mise run test        # zig build test, including example compilation
 mise run check       # formatting checks plus tests
 zig build run        # print the demo API's OpenAPI document
 zig build run-users_api
-zig build run-migration
+zig build run-byo_server
 ```
+
+### Independent examples
+
+Each example has its own directory, build file, and local dependency on this checkout. Run any one with `cd examples/<name>`, `zig build test`, and `zig build run`. The root run shortcuts for the existing examples are preserved.
+
+| Directory | Demonstrates |
+| --- | --- |
+| `examples/users_api` | Typed CRUD routes with a serial server |
+| `examples/threaded` | A bounded worker pool |
+| `examples/introspect` | Inspecting registered contracts |
+| `examples/byo_server` | Framework-independent validation and OpenAPI |
+| `examples/ssr_htmx` | HTML templates, HTMX fragments, and a shared JSON API |
+
+### Server-rendered HTML and HTMX
+
+The standalone [catalog example](examples/ssr_htmx) combines a typed JSON API with `zt` templates and HTMX fragments, sharing the same search types and application function. Its template dependency is isolated from the library.
 
 ## License
 

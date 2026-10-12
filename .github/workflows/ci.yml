@@ -19,3 +19,24 @@ jobs:
 
       - name: Verify install
         run: mise run verify-install
+
+  examples:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        example: [users_api, threaded, introspect, byo_server, ssr_htmx]
+    defaults:
+      run:
+        working-directory: examples/${{ matrix.example }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6 # v6.0.3
+
+      - name: Set up mise
+        uses: jdx/mise-action@v4 # v4.1.0
+
+      - name: Build and test the standalone example
+        run: |
+          zig build test
+          zig build

@@ -1,0 +1,14 @@
+.{
+    .name = .ssr_htmx,
+    .fingerprint = 0x453384f88dde4a2a,
+    .version = "0.0.0",
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .zchema = .{ .path = "../.." },
+        .zt = .{
+            .url = "git+https://github.com/lalinsky/zt.git?ref=v0.2.0#fe662f38c5f5d493c5397342ffd9ed438af3b7c9",
+            .hash = "zt-0.2.0-oSxxLBOqAgCk5jnwnL6-YwCByWfxxv8Pbih_LtWxyvs7",
+        },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}

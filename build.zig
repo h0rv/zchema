@@ -79,7 +79,7 @@ pub fn build(b: *std.Build) void {
         const example = b.addExecutable(.{
             .name = name,
             .root_module = b.createModule(.{
-                .root_source_file = b.path(b.fmt("examples/{s}.zig", .{name})),
+                .root_source_file = b.path(b.fmt("examples/{s}/src/main.zig", .{name})),
                 .target = target,
                 .optimize = optimize,
                 .imports = &.{.{ .name = "zchema", .module = mod }},
