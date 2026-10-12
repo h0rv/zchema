@@ -72,6 +72,9 @@ pub fn schemaName(comptime T: type) []const u8 {
 /// threads may each compile and all but one leak their copy (bounded, one-time).
 fn cachedCompiled(comptime T: type) *const jsonschema.CompiledSchema {
     const Holder = struct {
+        // Capture T in the container identity; otherwise Zig can share this
+        // static storage between different generic instantiations.
+        const SchemaType = T;
         var ptr: std.atomic.Value(?*jsonschema.CompiledSchema) = .init(null);
     };
     if (Holder.ptr.load(.acquire)) |p| return p;
@@ -285,4 +288,85 @@ test "serializeAndValidate round-trips" {
 
     const json = try serializeAndValidate(TestUser, arena, .{ .name = "Ada", .age = 7 }, true);
     try std.testing.expect(std.mem.indexOf(u8, json, "Ada") != null);
+}
+
+test "distinct input and output schemas survive alternating order and arena teardown" {
+    // Both orders get distinct types, so neither depends on a prior cache fill.
+    inline for (.{ false, true }) |output_first| {
+        const Input = struct {
+            name: []const u8,
+            pub const jsonschema = .{ .fields = .{ .name = .{ .minLength = if (output_first) 2 else 3 } } };
+        };
+        const OutputItem = struct {
+            value: u8,
+            pub const jsonschema = .{ .fields = .{ .value = .{ .minimum = if (output_first) 10 else 20 } } };
+        };
+        for (0..4) |round| {
+            // Cache storage must outlive these per-request allocations.
+            var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+            defer arena.deinit();
+            const a = arena.allocator();
+            if ((round % 2 == 0) == output_first) {
+                _ = try serializeAndValidate([]const OutputItem, a, &.{.{ .value = 30 }}, true);
+                _ = try parseAndValidate(Input, a, "{\"name\":\"Ada\"}", null);
+            } else {
+                _ = try parseAndValidate(Input, a, "{\"name\":\"Ada\"}", null);
+                _ = try serializeAndValidate([]const OutputItem, a, &.{.{ .value = 30 }}, true);
+            }
+            try std.testing.expectError(Error.SchemaValidationFailed, parseAndValidate(Input, a, "{\"name\":\"\"}", null));
+            try std.testing.expectError(Error.ResponseValidationFailed, serializeAndValidate([]const OutputItem, a, &.{.{ .value = 1 }}, true));
+            try std.testing.expect(cachedCompiled(Input) != cachedCompiled([]const OutputItem));
+        }
+    }
+}
+
+test "same-shaped types retain their own validation constraints" {
+    const Loose = struct {
+        count: u8,
+        pub const jsonschema = .{ .fields = .{ .count = .{ .minimum = 1 } } };
+    };
+    const Strict = struct {
+        count: u8,
+        pub const jsonschema = .{ .fields = .{ .count = .{ .minimum = 10 } } };
+    };
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    _ = try parseAndValidate(Loose, a, "{\"count\":5}", null);
+    try std.testing.expectError(Error.SchemaValidationFailed, parseAndValidate(Strict, a, "{\"count\":5}", null));
+    _ = try parseAndValidate(Strict, a, "{\"count\":15}", null);
+    _ = try parseAndValidate(Loose, a, "{\"count\":5}", null);
+}
+
+test "concurrent first use publishes one stable cache per type" {
+    const A = struct { first: u32 };
+    const B = struct { second: bool };
+    const Result = struct { a: *const jsonschema.CompiledSchema, b: *const jsonschema.CompiledSchema };
+    const Worker = struct {
+        fn run(start: *std.Io.Event, result: *Result) void {
+            start.wait(std.testing.io) catch unreachable;
+            result.* = .{ .a = cachedCompiled(A), .b = cachedCompiled(B) };
+        }
+    };
+    var start: std.Io.Event = .unset;
+    var results: [4]Result = undefined;
+    var threads: [4]std.Thread = undefined;
+    var spawned: usize = 0;
+    // Also release and join already-spawned threads if a later spawn fails.
+    defer {
+        start.set(std.testing.io);
+        for (threads[0..spawned]) |thread| thread.join();
+    }
+    for (&threads, &results) |*thread, *result| {
+        thread.* = try std.Thread.spawn(.{}, Worker.run, .{ &start, result });
+        spawned += 1;
+    }
+    start.set(std.testing.io);
+    for (threads) |thread| thread.join();
+    spawned = 0;
+    for (results) |result| {
+        try std.testing.expectEqual(cachedCompiled(A), result.a);
+        try std.testing.expectEqual(cachedCompiled(B), result.b);
+        try std.testing.expect(result.a != result.b);
+    }
 }
