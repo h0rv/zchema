@@ -32,10 +32,22 @@ This package uses the repository via a relative path and pins zt to `fe662f38c5f
 
 Handlers receive a `http.Context` with a borrowed arena and `html` helper. `http.zig` creates and destroys the arena around each response; request data must not escape that scope.
 
-The executable uses Zig 0.16.0's `std.process.Init.io`. Zt writes to `std.Io.Writer`; zchema works with `std.http.Server.Request`. Neither chooses an I/O backend. This intentionally serial demo handles one request per connection and closes it, avoiding an idle keep-alive connection monopolizing the loop. It has no connection deadlines or production concurrency policy.
+The default executable uses Zig 0.16.0's `std.process.Init.io`. Zt writes to `std.Io.Writer`; zchema works with `std.http.Server.Request`. Neither chooses an I/O backend. Both executable variants use the same `std.Io.Group.concurrent` accept loop and one request per connection. Each task owns its socket and request arena. Cancellation of the accept loop cancels and joins outstanding tasks before destroying the listener/runtime. There are no connection deadlines or admission limits; this remains a small demo. The CLI does not install a graceful OS-signal handler.
 
-[Zio](https://github.com/lalinsky/zio) implements `std.Io`, so it belongs at the `serve` boundary. Its current main branch requires Zig 0.17; Zig 0.16 users need the project's 0.19.x line or `zig-0.16` branch. This example does not include or test zio. Runtime substitution also needs cancellation/shutdown verification: zchema currently translates handler errors to HTTP 500, and generic writer failures may hide underlying transport cancellation.
+## Optional Zio experiment
+
+[Zio](https://github.com/lalinsky/zio) v0.19.1 is pinned as a lazy, example-only dependency. Its released `Runtime.io()` really substitutes for `std.Io`; it does not replace HTTP parsing, routes, templates, or allocators. Default Zio uses one executor, while `std.Io.Threaded` dynamically schedules workers. The two runtimes are not equivalent scheduling configurations.
+
+```sh
+zig build test -Dzio=true # run the same tests under both runtimes
+zig build run-zio -Dzio=true
+# From repository root: mise run test-zio / mise run ssr-zio
+```
+
+Tests cancel a blocked socket read and shut down the accept/task group during an active handler, asserting socket closure and allocator cleanup under both runtimes. An independent watchdog bounds hangs. Generic `ReadFailed`/`WriteFailed` erase concrete socket errors, so the connection owner restores `Canceled` from its reader/writer. Zchema now propagates those transport errors, including body-read failures, instead of attempting another HTTP error response. Ordinary application errors still produce HTTP 500.
+
+For reproducible loopback measurements, see [BENCHMARKS.md](BENCHMARKS.md). The optional external load generator is written in Zig and runs identically for both servers; Bash only starts/stops processes and records results. No Python is required.
 
 [Dusty](https://github.com/lalinsky/dusty) has its own request, response, and router types. It cannot directly replace `std.http.Server` underneath `z.App`. A Dusty integration would use zchema's server-independent `parseAndValidate`, `serializeAndValidate`, and `Spec`/`endpoint` helpers, as the existing `../byo_server/src/main.zig` example illustrates. Datastar could consume templates through a separate response adapter, but its protocol is not implemented here. No performance claims are made.
 
-The latest stable Zig release is 0.17.0, but this checkout remains on 0.16.0: released jsonschema v0.2.0 still uses the removed `Build.args` API. Updating the compiler without compatible dependency releases does not currently build. Zt v0.2.0 and jsonschema v0.2.0 are their latest released versions.
+The latest stable Zig release is 0.17.0, but this checkout remains on 0.16.0: released jsonschema v0.2.0 still uses the removed `Build.args` API. Updating the compiler without compatible dependency releases does not currently build. Zt v0.2.0 and jsonschema v0.2.0 are their latest released versions. Zio v0.19.1 is also its latest release and targets Zig 0.16; its I/O vtable does not compile against 0.17. The experiment uses released compatible versions rather than tracking main or nightly.

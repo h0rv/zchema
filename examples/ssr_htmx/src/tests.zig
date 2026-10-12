@@ -3,6 +3,8 @@ const std = @import("std");
 const app = @import("app.zig");
 const http = @import("http.zig");
 const t = std.testing;
+const use_zio = @import("runtime_options").use_zio;
+const zio = if (use_zio) @import("zio") else struct {};
 
 const Response = struct {
     bytes: []u8,
@@ -26,7 +28,7 @@ const Response = struct {
 };
 
 fn acceptOne(io: std.Io, listener: *std.Io.net.Server) !void {
-    http.serveConnection(io, t.allocator, try listener.accept(io), app.Server);
+    try http.serveConnection(io, t.allocator, try listener.accept(io), app.Server);
 }
 
 fn watchdog(io: std.Io) void {
@@ -35,9 +37,11 @@ fn watchdog(io: std.Io) void {
 }
 
 fn request(target: []const u8, htmx: bool, method: []const u8) !Response {
-    const io = t.io;
-    var deadline = try io.concurrent(watchdog, .{io});
-    defer deadline.cancel(io);
+    var deadline = try t.io.concurrent(watchdog, .{t.io});
+    defer deadline.cancel(t.io);
+    const runtime = if (use_zio) try zio.Runtime.init(t.allocator, .{}) else {};
+    defer if (use_zio) runtime.deinit();
+    const io = if (use_zio) runtime.io() else t.io;
     const addr = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
     var listener = try addr.listen(io, .{});
     defer listener.deinit(io);
@@ -146,4 +150,81 @@ test "HTTP methods and routes agree with served OpenAPI" {
 
 test {
     _ = app;
+}
+
+fn pendingRead(io: std.Io, stream: std.Io.net.Stream, started: *std.Io.Event, cleaned: *bool) std.Io.Cancelable!void {
+    defer cleaned.* = true;
+    started.set(io);
+    return http.serveConnection(io, t.allocator, stream, app.Server);
+}
+
+test "canceling a pending HTTP read preserves cancellation and closes the socket" {
+    var deadline = try t.io.concurrent(watchdog, .{t.io});
+    defer deadline.cancel(t.io);
+    const runtime = if (use_zio) try zio.Runtime.init(t.allocator, .{}) else {};
+    defer if (use_zio) runtime.deinit();
+    const io = if (use_zio) runtime.io() else t.io;
+    const addr = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
+    var listener = try addr.listen(io, .{});
+    defer listener.deinit(io);
+    const client = try listener.socket.address.connect(io, .{ .mode = .stream });
+    defer client.close(io);
+    const accepted = try listener.accept(io);
+    var started: std.Io.Event = .unset;
+    var cleaned = false;
+    var task = io.concurrent(pendingRead, .{ io, accepted, &started, &cleaned }) catch |err| {
+        accepted.close(io);
+        return err;
+    };
+    defer _ = task.cancel(io) catch {};
+    try started.wait(io);
+    try t.expectError(error.Canceled, task.cancel(io));
+    try t.expect(cleaned);
+    var buf: [128]u8 = undefined;
+    var reader = client.reader(io, &buf);
+    try t.expectError(error.EndOfStream, reader.interface.takeByte());
+}
+
+const WaitingHandler = struct {
+    var started: std.Io.Event = .unset;
+
+    fn run(ctx: *http.Context) !void {
+        // Ensures group cancellation tears down a nonempty request arena.
+        _ = try ctx.arena.alloc(u8, 16 * 1024);
+        started.set(ctx.io);
+        try ctx.io.sleep(.fromSeconds(3600), .awake);
+    }
+};
+const WaitingApp = @import("zchema").App(@import("zchema").Api(.{
+    @import("zchema").raw(.GET, "/wait", WaitingHandler.run),
+}), .{});
+
+fn waitingServer(io: std.Io, listener: *std.Io.net.Server) !void {
+    return http.serveOn(io, t.allocator, listener, WaitingApp);
+}
+
+test "server shutdown cancels active handlers, joins tasks, and releases request arenas" {
+    var deadline = try t.io.concurrent(watchdog, .{t.io});
+    defer deadline.cancel(t.io);
+    const runtime = if (use_zio) try zio.Runtime.init(t.allocator, .{}) else {};
+    defer if (use_zio) runtime.deinit();
+    const io = if (use_zio) runtime.io() else t.io;
+    const addr = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 0);
+    var listener = try addr.listen(io, .{});
+    defer listener.deinit(io);
+    WaitingHandler.started = .unset;
+    var server = try io.concurrent(waitingServer, .{ io, &listener });
+    defer _ = server.cancel(io) catch {};
+    const client = try listener.socket.address.connect(io, .{ .mode = .stream });
+    defer client.close(io);
+    var send: [256]u8 = undefined;
+    var writer = client.writer(io, &send);
+    try writer.interface.writeAll("GET /wait HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    try writer.interface.flush();
+    try WaitingHandler.started.wait(io);
+    try t.expectError(error.Canceled, server.cancel(io));
+    // A canceled handler must close without generating a misleading HTTP 500.
+    var recv: [256]u8 = undefined;
+    var reader = client.reader(io, &recv);
+    try t.expectError(error.EndOfStream, reader.interface.takeByte());
 }

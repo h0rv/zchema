@@ -5,6 +5,7 @@ const std = @import("std");
 const z = @import("zchema");
 
 pub const Context = struct {
+    io: std.Io,
     arena: std.mem.Allocator,
     request: *std.http.Server.Request,
 
@@ -27,26 +28,49 @@ pub fn serve(io: std.Io, gpa: std.mem.Allocator, comptime App: type) !void {
     var listener = try addr.listen(io, .{ .reuse_address = true });
     defer listener.deinit(io);
     std.log.info("catalog on http://127.0.0.1:8080", .{});
+    try serveOn(io, gpa, &listener, App);
+}
+
+/// Both runtime variants use this exact accept/task loop and connection policy.
+pub fn serveOn(io: std.Io, gpa: std.mem.Allocator, listener: *std.Io.net.Server, comptime App: type) !void {
+    const Task = struct {
+        fn run(task_io: std.Io, allocator: std.mem.Allocator, stream: std.Io.net.Stream) std.Io.Cancelable!void {
+            return serveConnection(task_io, allocator, stream, App);
+        }
+    };
+    var tasks: std.Io.Group = .init;
+    defer tasks.cancel(io);
     while (true) {
         const stream = try listener.accept(io);
-        serveConnection(io, gpa, stream, App);
+        errdefer stream.close(io);
+        try tasks.concurrent(io, Task.run, .{ io, gpa, stream });
     }
 }
 
-pub fn serveConnection(io: std.Io, gpa: std.mem.Allocator, stream: std.Io.net.Stream, comptime App: type) void {
+pub fn serveConnection(io: std.Io, gpa: std.mem.Allocator, stream: std.Io.net.Stream, comptime App: type) std.Io.Cancelable!void {
     defer stream.close(io);
     var recv: [16 * 1024]u8 = undefined;
     var send: [16 * 1024]u8 = undefined;
     var reader = stream.reader(io, &recv);
     var writer = stream.writer(io, &send);
     var server = std.http.Server.init(&reader.interface, &writer.interface);
-    var req = server.receiveHead() catch return;
-    // Deliberately one request per connection: no idle keep-alive wait in this
-    // serial demo. The transport experiment can replace this loop separately.
+    var req = server.receiveHead() catch return transportError(&reader, &writer);
+    // Both runtimes deliberately use one request per connection. This keeps
+    // the comparison independent of keep-alive and pipelining policy.
     req.head.keep_alive = false;
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
-    var ctx: Context = .{ .arena = arena.allocator(), .request = &req };
-    if (App.handle(&ctx, ctx.arena, &req, .{}) catch return) return;
-    req.respond("Not found", .{ .status = .not_found }) catch return;
+    var ctx: Context = .{ .io = io, .arena = arena.allocator(), .request = &req };
+    if (App.handle(&ctx, ctx.arena, &req, .{}) catch |err| {
+        if (err == error.Canceled) return error.Canceled;
+        return transportError(&reader, &writer);
+    }) return;
+    req.respond("Not found", .{ .status = .not_found }) catch return transportError(&reader, &writer);
+}
+
+// std.Io.Reader/Writer erase transport errors. Recover cancellation before
+// returning to the task group; swallowing it can prevent structured shutdown.
+fn transportError(reader: anytype, writer: anytype) std.Io.Cancelable!void {
+    if (reader.err) |err| if (err == error.Canceled) return error.Canceled;
+    if (writer.err) |err| if (err == error.Canceled) return error.Canceled;
 }

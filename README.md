@@ -352,6 +352,12 @@ and body too large (413).
 `errorBody(status, detail, fields)` plus `respondErrorBody` send a custom one.
 Declare your own error body types as response cases when you need more.
 
+`Canceled`, `ReadFailed`, and `WriteFailed` from body reads or handlers propagate
+to the server owner without attempting an error response. The owner can inspect
+its concrete stream reader/writer error and preserve cancellation. These error
+names are reserved for that transport boundary; map non-transport failures to
+an application-specific error if you want the dispatcher's normal 500 handling.
+
 ## Develop
 
 From a fresh checkout, use the existing mise toolchain configuration:
