@@ -46,3 +46,8 @@ run = "zig build test -Dzio=true"
 description = "Run the catalog with the optional pinned Zio runtime"
 dir = "examples/ssr_htmx"
 run = "zig build run-zio -Dzio=true"
+
+[tasks.dusty]
+description = "Run the Dusty and Zio catalog on localhost:8080"
+dir = "examples/dusty_htmx"
+run = "zig build run"

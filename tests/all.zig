@@ -468,3 +468,26 @@ test "body read failure propagates without invoking the handler or writing HTTP"
     try std.testing.expect(!Handler.called);
     try std.testing.expectEqual(@as(usize, 0), output.written().len);
 }
+
+test "query allocation failure propagates without sending a validation response" {
+    const Handlers = struct {
+        fn search(called: *bool, _: zchema.Query(struct { q: []const u8 })) !u32 {
+            called.* = true;
+            return 1;
+        }
+    };
+    const QueryApi = zchema.Api(.{zchema.get("/search", Handlers.search)});
+    var input = std.Io.Reader.fixed("GET /search?q=hello%20world HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    var server = std.http.Server.init(&input, &output.writer);
+    var req = try server.receiveHead();
+
+    var buffer: [0]u8 = .{};
+    var allocator = std.heap.FixedBufferAllocator.init(&buffer);
+    var called = false;
+
+    try std.testing.expectError(error.OutOfMemory, zchema.handle(QueryApi, &called, allocator.allocator(), &req, .{}));
+    try std.testing.expect(!called);
+    try std.testing.expectEqual(@as(usize, 0), output.written().len);
+}

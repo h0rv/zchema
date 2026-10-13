@@ -125,6 +125,9 @@ pub const schemaName = validation.schemaName;
 // used with any server (for example http.zig) to validate requests and
 // responses without zchema's dispatcher.
 
+pub const QueryOptions = params.QueryOptions;
+pub const decodeQuery = params.decodeQuery;
+
 pub const parse = validation.parse;
 pub const parseAndValidate = validation.parseAndValidate;
 pub const validateValue = validation.validateValue;

@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const errors = @import("errors.zig");
+const validation = @import("validation.zig");
 const FieldError = errors.FieldError;
 
 /// Returned when one or more parameters are missing or malformed. The caller
@@ -53,11 +54,35 @@ pub fn queryParams(
     field_errors: *std.ArrayListUnmanaged(FieldError),
 ) ParamError!T {
     const query = if (std.mem.indexOfScalar(u8, target, '?')) |q| target[q + 1 ..] else "";
+    return decodeQuery(T, arena, RawQuery{ .arena = arena, .query = query }, field_errors, .{});
+}
+
+pub const QueryOptions = struct {
+    /// Apply T's JSON Schema constraints after coercion. Off by default to
+    /// preserve the std.http dispatcher's existing parameter behavior.
+    validate: bool = false,
+};
+
+/// Decode query fields from a lookup with `get(name)` returning `?[]const u8`
+/// or an error union containing it. Values must already be URL-decoded.
+/// Missing fields use Zig defaults or null; unknown fields are ignored.
+/// Duplicate-key and URL-decoding policy belong to the lookup.
+///
+/// Result strings borrow lookup storage; that storage must outlive the result.
+/// Validation scratch and appended field errors use `arena`. Lookup and
+/// allocation errors propagate unchanged. No server or Io runtime is required.
+pub fn decodeQuery(
+    comptime T: type,
+    arena: std.mem.Allocator,
+    values: anytype,
+    field_errors: *std.ArrayListUnmanaged(FieldError),
+    comptime options: QueryOptions,
+) !T {
     var result: T = undefined;
     var ok = true;
 
     inline for (std.meta.fields(T)) |f| {
-        if (try queryValue(arena, query, f.name)) |raw| {
+        if (try lookup(values, f.name)) |raw| {
             if (coerce(f.type, arena, raw)) |v| {
                 @field(result, f.name) = v;
             } else |_| {
@@ -75,8 +100,27 @@ pub fn queryParams(
     }
 
     if (!ok) return error.InvalidParameters;
+    if (options.validate) {
+        const json = try std.json.Stringify.valueAlloc(arena, result, .{});
+        const instance = try std.json.parseFromSliceLeaky(std.json.Value, arena, json, .{});
+        try validation.validateValue(T, arena, &instance, field_errors);
+    }
+
     return result;
 }
+
+fn lookup(values: anytype, name: []const u8) !?[]const u8 {
+    return values.get(name);
+}
+
+const RawQuery = struct {
+    arena: std.mem.Allocator,
+    query: []const u8,
+
+    pub fn get(self: RawQuery, name: []const u8) !?[]const u8 {
+        return queryValue(self.arena, self.query, name);
+    }
+};
 
 /// The value of the template `{name}` segment from `path`, or null when the
 /// segment counts differ or `name` is not a template segment.
@@ -222,4 +266,135 @@ test "pathParams extracts and coerces typed segments" {
     const p = try pathParams(P, arena, "/posts/{id}/{slug}", "/posts/42/hello", &errs);
     try testing.expectEqual(@as(u32, 42), p.id);
     try testing.expectEqualStrings("hello", p.slug);
+}
+
+test "decoded and raw queries share coercion, defaults, and optional fields" {
+    const Search = struct {
+        term: []const u8,
+        limit: u8 = 20,
+        ratio: f64,
+        enabled: bool,
+        category: enum { books, tools },
+        cursor: ?u32 = null,
+    };
+    const values = std.StaticStringMap([]const u8).initComptime(.{
+        .{ "term", "a+b%2F" },
+        .{ "ratio", "1.5" },
+        .{ "enabled", "1" },
+        .{ "category", "books" },
+        .{ "ignored", "value" },
+    });
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var errs: std.ArrayListUnmanaged(FieldError) = .empty;
+
+    const decoded = try decodeQuery(Search, arena, values, &errs, .{});
+    const raw = try queryParams(Search, arena, "/?term=a%2Bb%252F&ratio=1.5&enabled=1&category=books&ignored=value", &errs);
+
+    try testing.expectEqualDeep(raw, decoded);
+    try testing.expectEqualStrings("a+b%2F", decoded.term);
+    try testing.expectEqual(@as(u8, 20), decoded.limit);
+    try testing.expectEqual(@as(?u32, null), decoded.cursor);
+    try testing.expectEqual(values.get("term").?.ptr, decoded.term.ptr);
+    try testing.expectEqual(@as(usize, 0), errs.items.len);
+}
+
+test "decoded query reports missing and malformed fields and accepts empty strings" {
+    const Search = struct {
+        term: []const u8,
+        limit: u8,
+        enabled: bool,
+        category: enum { books, tools },
+        required: u32,
+    };
+    const values = std.StaticStringMap([]const u8).initComptime(.{
+        .{ "term", "" },
+        .{ "limit", "256" },
+        .{ "enabled", "yes" },
+        .{ "category", "unknown" },
+    });
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    var errs: std.ArrayListUnmanaged(FieldError) = .empty;
+
+    try testing.expectError(error.InvalidParameters, decodeQuery(Search, arena_state.allocator(), values, &errs, .{}));
+    try testing.expectEqual(@as(usize, 4), errs.items.len);
+    for (errs.items, [_][]const u8{ "/limit", "/enabled", "/category", "/required" }) |err, pointer| {
+        try testing.expectEqualStrings(pointer, err.pointer);
+    }
+}
+
+test "schema validation is explicit and works with either lookup" {
+    const Search = struct {
+        term: []const u8,
+
+        pub const jsonschema = .{ .fields = .{ .term = .{ .minLength = 3 } } };
+    };
+    const values = std.StaticStringMap([]const u8).initComptime(.{.{ "term", "ab" }});
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var errs: std.ArrayListUnmanaged(FieldError) = .empty;
+
+    // Existing std.http Query behavior remains coercion-only.
+    _ = try queryParams(Search, arena, "/?term=ab", &errs);
+    _ = try decodeQuery(Search, arena, values, &errs, .{});
+
+    inline for (.{ values, RawQuery{ .arena = arena, .query = "term=ab" } }) |source| {
+        errs.clearRetainingCapacity();
+        try testing.expectError(error.SchemaValidationFailed, decodeQuery(Search, arena, source, &errs, .{ .validate = true }));
+        try testing.expectEqualStrings("/term", errs.items[0].pointer);
+    }
+
+    const valid = std.StaticStringMap([]const u8).initComptime(.{.{ "term", "books" }});
+    const result = try decodeQuery(Search, arena, valid, &errs, .{ .validate = true });
+    try testing.expectEqual(valid.get("term").?.ptr, result.term.ptr);
+}
+
+test "decoded query propagates lookup and allocation failures" {
+    const Unavailable = struct {
+        pub fn get(_: @This(), _: []const u8) error{Canceled}!?[]const u8 {
+            return error.Canceled;
+        }
+    };
+    const Search = struct { term: []const u8 };
+    var buffer: [0]u8 = .{};
+    var allocator = std.heap.FixedBufferAllocator.init(&buffer);
+    var errs: std.ArrayListUnmanaged(FieldError) = .empty;
+
+    try testing.expectError(error.Canceled, decodeQuery(Search, allocator.allocator(), Unavailable{}, &errs, .{}));
+
+    const missing = std.StaticStringMap([]const u8).initComptime(.{});
+    try testing.expectError(error.OutOfMemory, decodeQuery(Search, allocator.allocator(), missing, &errs, .{}));
+
+    const present = std.StaticStringMap([]const u8).initComptime(.{.{ "term", "books" }});
+    try testing.expectError(error.OutOfMemory, decodeQuery(Search, allocator.allocator(), present, &errs, .{ .validate = true }));
+}
+
+test "validated queries retain numeric types and reject non-finite numbers" {
+    const Search = struct {
+        count: u32,
+        ratio: f64,
+
+        pub const jsonschema = .{ .fields = .{ .count = .{ .minimum = 5 } } };
+    };
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var errs: std.ArrayListUnmanaged(FieldError) = .empty;
+
+    const valid = std.StaticStringMap([]const u8).initComptime(.{ .{ "count", "5" }, .{ "ratio", "1.5" } });
+    const result = try decodeQuery(Search, arena, valid, &errs, .{ .validate = true });
+    try testing.expectEqual(@as(u32, 5), result.count);
+    try testing.expectEqual(@as(f64, 1.5), result.ratio);
+
+    const too_small = std.StaticStringMap([]const u8).initComptime(.{ .{ "count", "4" }, .{ "ratio", "1.5" } });
+    try testing.expectError(error.SchemaValidationFailed, decodeQuery(Search, arena, too_small, &errs, .{ .validate = true }));
+    try testing.expectEqualStrings("/count", errs.items[0].pointer);
+
+    errs.clearRetainingCapacity();
+    const non_finite = std.StaticStringMap([]const u8).initComptime(.{ .{ "count", "5" }, .{ "ratio", "nan" } });
+    try testing.expectError(error.SchemaValidationFailed, decodeQuery(Search, arena, non_finite, &errs, .{ .validate = true }));
+    try testing.expectEqualStrings("/ratio", errs.items[0].pointer);
 }
