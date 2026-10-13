@@ -1,5 +1,7 @@
 const std = @import("std");
+
 const zio = @import("zio");
+
 const app = @import("app.zig");
 
 pub fn main(init: std.process.Init) !void {

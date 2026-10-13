@@ -1,9 +1,13 @@
 //! Real loopback HTTP tests; no separate server process or external test tools.
+
 const std = @import("std");
-const app = @import("app.zig");
+
 const http = @import("dusty");
-const testing = std.testing;
 const zio = @import("zio");
+
+const app = @import("app.zig");
+
+const testing = std.testing;
 
 const Response = struct {
     bytes: []u8,
