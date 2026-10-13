@@ -5,7 +5,6 @@ const http = @import("dusty");
 const t = std.testing;
 const zio = @import("zio");
 
-
 const Response = struct {
     bytes: []u8,
     head: []const u8,
