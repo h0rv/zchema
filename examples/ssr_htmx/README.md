@@ -48,3 +48,5 @@ From the repository root, use `mise run test-zio` and `mise run ssr-zio`. Withou
 The tests cover blocked socket reads and cancellation during an active handler, checking socket closure and request-arena cleanup on both runtimes. The connection owner recovers `Canceled` from concrete stream errors when `ReadFailed` or `WriteFailed` erases it. Zchema propagates these transport errors without attempting another response; ordinary application errors still produce HTTP 500.
 
 Use the repository's pinned Zig 0.16.0 toolchain. Zio v0.19.1 targets that version. The example's HTTP task group has no admission limits or connection deadlines, and the executable does not install an OS-signal handler for graceful shutdown.
+
+For Dusty-owned request arenas and connection management, see [the Dusty + Zio example](../dusty_htmx). It reuses this catalog module and template source with zchema’s server-independent validation and OpenAPI APIs.

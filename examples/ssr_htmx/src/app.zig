@@ -1,6 +1,6 @@
 const std = @import("std");
 const z = @import("zchema");
-const catalog = @import("catalog.zig");
+const catalog = @import("catalog");
 const pages = @import("pages.zig");
 const http = @import("http.zig");
 

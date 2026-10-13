@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 5
     strategy:
       matrix:
-        example: [users_api, threaded, introspect, byo_server, ssr_htmx]
+        example: [users_api, threaded, introspect, byo_server, ssr_htmx, dusty_htmx]
     defaults:
       run:
         working-directory: examples/${{ matrix.example }}

@@ -1,0 +1,14 @@
+.{
+    .name = .dusty_htmx,
+    .version = "0.0.0",
+    .fingerprint = 0xec3df3aac4cfee2,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .catalog_example = .{ .path = "../ssr_htmx" },
+        .zchema = .{ .path = "../.." },
+        .zt = .{ .url = "git+https://github.com/lalinsky/zt.git#fe662f38c5f5d493c5397342ffd9ed438af3b7c9", .hash = "zt-0.2.0-oSxxLBOqAgCk5jnwnL6-YwCByWfxxv8Pbih_LtWxyvs7" },
+        .zio = .{ .url = "git+https://github.com/lalinsky/zio.git?ref=v0.19.1#4daa0c0a9522a37c4d28e3dcec2515cc955abe71", .hash = "zio-0.19.1-xHbVVJXzKwAKLRAABWeDvQG9Dg1kf9FM3haWG0YqtScn" },
+        .dusty = .{ .url = "git+https://github.com/lalinsky/dusty.git?ref=v0.4.0#9f74f97b91774c1f6e8c66da03403deb89be05a3", .hash = "dusty-0.4.0-Qdw7RoP5IQC_GLRxQ4dU6Y0RyXRx6YAjP16tVT9sowy4" },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}

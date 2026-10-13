@@ -394,6 +394,7 @@ Each example has its own directory, build file, and local dependency on this che
 | `examples/introspect` | Inspecting registered contracts |
 | `examples/byo_server` | Framework-independent validation and OpenAPI |
 | `examples/ssr_htmx` | HTML templates, HTMX fragments, and a shared JSON API |
+| `examples/dusty_htmx` | The same catalog with Dusty-owned request arenas and Zio |
 
 ### Server-rendered HTML and HTMX
 

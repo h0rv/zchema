@@ -7,11 +7,15 @@ pub fn build(b: *std.Build) void {
     const zchema = b.dependency("zchema", .{ .target = target, .optimize = optimize });
     const templates_dep = b.dependency("zt", .{ .target = target, .optimize = optimize });
     const templates = zt.addTemplates(b, templates_dep, &.{b.path("src/pages.zt")});
+    const catalog = b.addModule("catalog", .{ .root_source_file = b.path("src/catalog.zig"), .target = target, .optimize = optimize });
     const imports: []const std.Build.Module.Import = &.{
+        .{ .name = "catalog", .module = catalog },
         .{ .name = "zchema", .module = zchema.module("zchema") },
         .{ .name = "zt", .module = templates_dep.module("zt") },
     };
     const test_step = b.step("test", "Run HTTP, allocation, and cancellation tests");
+    const catalog_tests = b.addTest(.{ .root_module = catalog });
+    test_step.dependOn(&b.addRunArtifact(catalog_tests).step);
     const with_zio = b.option(bool, "zio", "Also build and test the pinned Zio runtime") orelse false;
     const zio_dep = if (with_zio) b.lazyDependency("zio", .{ .target = target, .optimize = optimize }) else null;
     for ([_]bool{ false, true }) |use_zio| {
