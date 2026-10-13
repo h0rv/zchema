@@ -291,6 +291,22 @@ res.body = try z.serializeAndValidate(User, res.arena, user, false);
 const schema = z.schemaText(CreateUser);
 ```
 
+For decoded query parameters, pass any lookup with `get(name)` returning
+`?[]const u8` (or an error union). For example, Dusty's `req.query` works directly:
+
+```zig
+var fields: std.ArrayListUnmanaged(z.FieldError) = .empty;
+const search = try z.decodeQuery(Search, req.arena, req.query, &fields, .{
+    .validate = true,
+});
+```
+
+The decoder applies Zig defaults, optionals, and scalar coercion. Schema
+constraints are opt-in; the std.http `Query(T)` adapter keeps its existing
+coercion-only behavior. Result strings borrow the lookup's storage; errors and
+validation scratch use the supplied arena. The lookup owns URL decoding and
+which value wins for a repeated key. Unknown fields are ignored.
+
 For an OpenAPI document, declare the endpoints directly with `endpoint`/`Spec`,
 passing your models. No handlers and no dispatcher are involved, so you keep your
 own framework's router and just serve the generated document:

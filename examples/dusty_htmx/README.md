@@ -15,9 +15,9 @@ Dusty and Zio. zt escapes the HTML; zchema validates the search input and
 JSON output. Dusty owns the request arenas and connection lifecycle.
 OpenAPI and documentation HTML are generated once at startup.
 
-The app still registers its routes and converts the two decoded query fields
-to JSON for zchema. `z.App` handles that wiring for std.http and is simpler
-for this small app. Dusty is an alternative when you want its routing,
+The app passes Dusty's decoded query map to `z.decodeQuery`, with schema
+validation enabled. It still registers routes and sends error responses.
+`z.App` handles that wiring for std.http and is simpler for this small app. Dusty is an alternative when you want its routing,
 timeouts, and connection management; it does not make zchema's std.http
 handlers portable.
 
