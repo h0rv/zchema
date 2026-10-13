@@ -58,16 +58,11 @@ pub fn routes(server: *Server) void {
 }
 
 fn parseSearch(req: *http.Request, res: *http.Response) !?catalog.Search {
-    // Dusty has already URL-decoded the query. Select the two fields we accept
-    // and turn them into JSON for zchema's server-independent validation API.
-    const query_json = try std.json.Stringify.valueAlloc(req.arena, .{
-        .q = req.query.get("q") orelse "",
-        .category = req.query.get("category") orelse "all",
-    }, .{});
-
     var field_errors: std.ArrayListUnmanaged(z.FieldError) = .empty;
-    return z.parseAndValidate(catalog.Search, req.arena, query_json, &field_errors) catch |err| switch (err) {
-        error.SchemaValidationFailed, error.InvalidJson => {
+    return z.decodeQuery(catalog.Search, req.arena, req.query, &field_errors, .{
+        .validate = true,
+    }) catch |err| switch (err) {
+        error.InvalidParameters, error.SchemaValidationFailed => {
             res.status = .unprocessable_entity;
             try res.json(z.errorBody(.unprocessable_entity, "Invalid query", field_errors.items), .{});
             try res.header("Content-Type", "application/problem+json");

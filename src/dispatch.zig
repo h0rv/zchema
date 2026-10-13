@@ -95,9 +95,12 @@ fn invoke(
             };
             args[i] = .{ .value = v };
         } else if (comptime markers.isQuery(PT)) {
-            const v = params.queryParams(PT.Inner, arena, req.head.target, &param_errors) catch {
-                try respondParams(arena, req, param_errors.items, opts.response);
-                return;
+            const v = params.queryParams(PT.Inner, arena, req.head.target, &param_errors) catch |err| switch (err) {
+                error.InvalidParameters => {
+                    try respondParams(arena, req, param_errors.items, opts.response);
+                    return;
+                },
+                else => return err,
             };
             args[i] = .{ .value = v };
         } else if (comptime markers.isHeader(PT)) {
