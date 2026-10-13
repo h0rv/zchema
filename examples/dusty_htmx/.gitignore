@@ -1,4 +1,3 @@
 .zig-cache/
 zig-out/
-src/pages.zig
 zig-pkg/
