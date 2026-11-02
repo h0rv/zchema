@@ -267,7 +267,7 @@ fn writeOperation(writer: *std.Io.Writer, comptime o: Operation) !void {
     try writer.writeAll(",\"responses\":{");
     inline for (o.responses, 0..) |r, i| {
         if (i != 0) try writer.writeByte(',');
-        try writer.print("\"{d}\":{{\"description\":", .{@intFromEnum(r.status)});
+        try writer.print("\"{d}\":{{\"description\":", .{@backingInt(r.status)});
         try writeString(writer, comptime statusPhrase(r.status));
         if (r.Type) |T| {
             try writer.writeAll(",\"content\":{\"application/json\":{\"schema\":");

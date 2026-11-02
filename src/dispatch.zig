@@ -82,8 +82,8 @@ fn invoke(
     // query are parsed here, before the body, since reading the body invalidates
     // req.head (which holds the target the params come from).
     var param_errors: std.ArrayListUnmanaged(errors.FieldError) = .empty;
-    inline for (fn_info.params, 0..) |p, i| {
-        const PT = p.type orelse @compileError("zchema dispatch cannot handle generic handler parameters");
+    inline for (fn_info.param_types, 0..) |param_type, i| {
+        const PT = param_type orelse @compileError("zchema dispatch cannot handle generic handler parameters");
         if (PT == *Request) {
             args[i] = req;
         } else if (PT == std.mem.Allocator) {
@@ -114,8 +114,8 @@ fn invoke(
     }
 
     // Pass 2: the body, which consumes the request stream.
-    inline for (fn_info.params, 0..) |p, i| {
-        const PT = p.type.?;
+    inline for (fn_info.param_types, 0..) |param_type, i| {
+        const PT = param_type.?;
         if (comptime markers.isBody(PT)) {
             var body_errors: std.ArrayListUnmanaged(errors.FieldError) = .empty;
             const parsed = helpers.jsonBodyWithErrors(PT.Inner, arena, req, opts.body, &body_errors) catch |err| {

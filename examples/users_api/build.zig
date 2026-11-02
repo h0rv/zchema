@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(exe);
 
     const run = b.addRunArtifact(exe);
-    if (b.args) |args| run.addArgs(args);
+    run.addPassthruArgs();
     b.step("run", "Run this example").dependOn(&run.step);
 
     const tests = b.addTest(.{ .root_module = mod });

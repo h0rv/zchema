@@ -113,10 +113,10 @@ pub fn op(
 /// Build an API type from a tuple of `Route` values. The resulting type exposes
 /// `routes: [N]Route` for OpenAPI generation and dispatch.
 pub fn Api(comptime routes_tuple: anytype) type {
-    const fields = std.meta.fields(@TypeOf(routes_tuple));
+    const fields = @typeInfo(@TypeOf(routes_tuple)).@"struct".field_names;
     var arr: [fields.len]Route = undefined;
-    inline for (fields, 0..) |f, i| {
-        const r = @field(routes_tuple, f.name);
+    inline for (fields, 0..) |name, i| {
+        const r = @field(routes_tuple, name);
         if (@TypeOf(r) != Route) @compileError("Api entries must be Route values from get/post/...");
         for (arr[0..i]) |prev| {
             if (prev.method == r.method and std.mem.eql(u8, prev.path, r.path))
@@ -176,8 +176,8 @@ fn unwrapError(comptime T: type) type {
 /// Find a `Body(T)` parameter in a handler signature and return `T`.
 fn inferredBodyType(comptime Fn: type) ?type {
     const info = @typeInfo(Fn).@"fn";
-    inline for (info.params) |p| {
-        const PT = p.type orelse continue;
+    inline for (info.param_types) |param_type| {
+        const PT = param_type orelse continue;
         if (markers.isBody(PT)) return PT.Inner;
     }
     return null;
@@ -225,8 +225,8 @@ fn paramsFromContract(comptime ReqContract: type) []const OperationParam {
 /// Path and query parameters inferred from `Path(T)` / `Query(T)` handler params.
 fn inferredParams(comptime Fn: type) []const OperationParam {
     var list: []const OperationParam = &.{};
-    inline for (@typeInfo(Fn).@"fn".params) |p| {
-        const PT = p.type orelse continue;
+    inline for (@typeInfo(Fn).@"fn".param_types) |param_type| {
+        const PT = param_type orelse continue;
         if (markers.isPath(PT)) list = list ++ pathParamsOf(PT.Inner);
         if (markers.isQuery(PT)) list = list ++ queryParamsOf(PT.Inner);
         if (markers.isHeader(PT)) list = list ++ [_]OperationParam{.{
@@ -241,11 +241,12 @@ fn inferredParams(comptime Fn: type) []const OperationParam {
 
 fn pathParamsOf(comptime P: type) []const OperationParam {
     var list: []const OperationParam = &.{};
-    inline for (std.meta.fields(P)) |f| {
+    const info = @typeInfo(P).@"struct";
+    inline for (info.field_names, info.field_types) |name, Field| {
         list = list ++ [_]OperationParam{.{
-            .name = f.name,
+            .name = name,
             .in = .path,
-            .Type = stripOptional(f.type),
+            .Type = stripOptional(Field),
             .required = true,
         }};
     }
@@ -254,13 +255,14 @@ fn pathParamsOf(comptime P: type) []const OperationParam {
 
 fn queryParamsOf(comptime Q: type) []const OperationParam {
     var list: []const OperationParam = &.{};
-    inline for (std.meta.fields(Q)) |f| {
+    const info = @typeInfo(Q).@"struct";
+    inline for (info.field_names, info.field_types, info.field_attrs) |name, Field, attrs| {
         // A query field is optional when it is `?T` or carries a default.
-        const required = @typeInfo(f.type) != .optional and f.default_value_ptr == null;
+        const required = @typeInfo(Field) != .optional and attrs.default_value_ptr == null;
         list = list ++ [_]OperationParam{.{
-            .name = f.name,
+            .name = name,
             .in = .query,
-            .Type = stripOptional(f.type),
+            .Type = stripOptional(Field),
             .required = required,
         }};
     }
@@ -303,6 +305,7 @@ pub fn lowerMethod(comptime method: std.http.Method) []const u8 {
         .OPTIONS => "options",
         .CONNECT => "connect",
         .TRACE => "trace",
+        .QUERY => "query",
     };
 }
 
@@ -387,10 +390,10 @@ pub fn endpoint(comptime method: std.http.Method, comptime path: []const u8, com
                 break :blk &final;
             } else if (@hasField(D, "responses")) {
                 const cases = desc.responses;
-                const fields = std.meta.fields(@TypeOf(cases));
+                const fields = @typeInfo(@TypeOf(cases)).@"struct".field_names;
                 var arr: [fields.len]OperationResponse = undefined;
-                for (fields, 0..) |f, i| {
-                    const c: contract.ResponseCase = @field(cases, f.name);
+                for (fields, 0..) |name, i| {
+                    const c: contract.ResponseCase = @field(cases, name);
                     arr[i] = .{ .status = c.status, .Type = c.Type };
                 }
                 const final = arr;
@@ -420,10 +423,10 @@ pub fn endpoint(comptime method: std.http.Method, comptime path: []const u8, com
 /// exposes `operations: [N]Operation` and is accepted by `openApiJson`, the same
 /// as an `Api` built from routes.
 pub fn Spec(comptime ops_tuple: anytype) type {
-    const fields = std.meta.fields(@TypeOf(ops_tuple));
+    const fields = @typeInfo(@TypeOf(ops_tuple)).@"struct".field_names;
     var arr: [fields.len]Operation = undefined;
-    inline for (fields, 0..) |f, i| {
-        arr[i] = @field(ops_tuple, f.name);
+    inline for (fields, 0..) |name, i| {
+        arr[i] = @field(ops_tuple, name);
     }
     const final = arr;
     return struct {
@@ -470,6 +473,10 @@ test "operation infers path/query params from markers and optional return" {
     try std.testing.expectEqual(@as(usize, 2), o2.params.len);
     try std.testing.expectEqual(ParamIn.query, o2.params[0].in);
     try std.testing.expect(!o2.params[0].required); // limit has a default
+}
+
+test "lowerMethod handles QUERY" {
+    try std.testing.expectEqualStrings("query", lowerMethod(.QUERY));
 }
 
 test "raw marks a route non-JSON" {

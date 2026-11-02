@@ -25,20 +25,21 @@ pub fn pathParams(
     var result: T = undefined;
     var ok = true;
 
-    inline for (std.meta.fields(T)) |f| {
-        if (segmentValue(template, path, f.name)) |raw| {
-            if (coerce(f.type, arena, raw)) |v| {
-                @field(result, f.name) = v;
+    const info = @typeInfo(T).@"struct";
+    inline for (info.field_names, info.field_types) |name, Field| {
+        if (segmentValue(template, path, name)) |raw| {
+            if (coerce(Field, arena, raw)) |v| {
+                @field(result, name) = v;
             } else |_| {
                 ok = false;
                 try field_errors.append(arena, .{
-                    .pointer = "/" ++ f.name,
+                    .pointer = "/" ++ name,
                     .message = "invalid path parameter",
                 });
             }
         } else {
             ok = false;
-            try field_errors.append(arena, .{ .pointer = "/" ++ f.name, .message = "missing path parameter" });
+            try field_errors.append(arena, .{ .pointer = "/" ++ name, .message = "missing path parameter" });
         }
     }
 
@@ -81,21 +82,22 @@ pub fn decodeQuery(
     var result: T = undefined;
     var ok = true;
 
-    inline for (std.meta.fields(T)) |f| {
-        if (try lookup(values, f.name)) |raw| {
-            if (coerce(f.type, arena, raw)) |v| {
-                @field(result, f.name) = v;
+    const info = @typeInfo(T).@"struct";
+    inline for (info.field_names, info.field_types, info.field_attrs) |name, Field, attrs| {
+        if (try lookup(values, name)) |raw| {
+            if (coerce(Field, arena, raw)) |v| {
+                @field(result, name) = v;
             } else |_| {
                 ok = false;
-                try field_errors.append(arena, .{ .pointer = "/" ++ f.name, .message = "invalid query parameter" });
+                try field_errors.append(arena, .{ .pointer = "/" ++ name, .message = "invalid query parameter" });
             }
-        } else if (f.defaultValue()) |dflt| {
-            @field(result, f.name) = dflt;
-        } else if (@typeInfo(f.type) == .optional) {
-            @field(result, f.name) = null;
+        } else if (attrs.defaultValue(Field)) |dflt| {
+            @field(result, name) = dflt;
+        } else if (@typeInfo(Field) == .optional) {
+            @field(result, name) = null;
         } else {
             ok = false;
-            try field_errors.append(arena, .{ .pointer = "/" ++ f.name, .message = "missing query parameter" });
+            try field_errors.append(arena, .{ .pointer = "/" ++ name, .message = "missing query parameter" });
         }
     }
 

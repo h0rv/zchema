@@ -1,6 +1,6 @@
 # Dusty catalog
 
-Run from the repository root with Zig 0.16.0:
+Use Zig 0.17.0 and run from the repository root:
 
 ```sh
 mise run dusty
@@ -23,3 +23,6 @@ handlers portable.
 
 Run `zig build test` from this directory for the HTTP and cancellation tests.
 Dependencies are pinned in `build.zig.zon`; TLS and compression are disabled.
+Dusty v0.5.0 and zt v0.2.1 both test Zig 0.17.0 in upstream CI. Zio is pinned
+to `57f8fa82e27c1c4cf8808efba7999332216e8658` on its Zig 0.17 `main` branch.
+Its v0.19.x release tags target Zig 0.16 and cannot be substituted for that pin.
