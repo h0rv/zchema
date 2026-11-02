@@ -50,7 +50,7 @@ pub fn main(init: std.process.Init) !void {
         }
 
         inline for (op.responses) |r| {
-            const code = @intFromEnum(r.status);
+            const code = @backingInt(r.status);
             if (r.Type) |T| {
                 try w.print("  {d}: {s}\n", .{ code, comptime z.schemaName(T) });
             } else {

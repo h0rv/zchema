@@ -70,7 +70,7 @@ pub const ErrorBody = struct {
 pub fn errorBody(status: std.http.Status, detail: ?[]const u8, field_errors: []const FieldError) ErrorBody {
     return .{
         .title = status.phrase() orelse "Error",
-        .status = @intFromEnum(status),
+        .status = @backingInt(status),
         .detail = detail,
         .errors = field_errors,
     };
@@ -116,7 +116,7 @@ test "error mapping is total and builds bodies" {
         try std.testing.expect(b.status >= 400);
         try std.testing.expect(b.title.len > 0);
         try std.testing.expect(b.detail.?.len > 0);
-        try std.testing.expectEqual(@intFromEnum(statusForError(e)), b.status);
+        try std.testing.expectEqual(@backingInt(statusForError(e)), b.status);
     }
 }
 

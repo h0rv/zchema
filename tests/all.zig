@@ -469,6 +469,45 @@ test "body read failure propagates without invoking the handler or writing HTTP"
     try std.testing.expectEqual(@as(usize, 0), output.written().len);
 }
 
+test "QUERY raw route reads JSON and closes an unframed request" {
+    const Handler = struct {
+        fn run(req: *std.http.Server.Request, arena: std.mem.Allocator) !void {
+            if (req.head.content_length == null) {
+                try zchema.respondErrorBody(arena, req, zchema.errorBody(.length_required, null, &.{}), .{});
+                return;
+            }
+            const value = try zchema.jsonBody(CreateUser, arena, req, .{});
+            try zchema.respondJson(CreateUser, arena, req, .ok, value, .{});
+        }
+    };
+    const QueryApi = zchema.Api(.{zchema.raw(.QUERY, "/search", Handler.run)});
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    inline for (.{
+        "QUERY /search HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n{\"name\":\"Ada\"}",
+        "QUERY /search HTTP/1.1\r\n\r\n",
+    }, 0..) |bytes, i| {
+        var input = std.Io.Reader.fixed(bytes);
+        var output: std.Io.Writer.Allocating = .init(a);
+        var server = std.http.Server.init(&input, &output.writer);
+        var req = try server.receiveHead();
+        try std.testing.expect(try zchema.handle(QueryApi, {}, a, &req, .{}));
+        if (i == 0) {
+            try std.testing.expect(std.mem.indexOf(u8, output.written(), "200 OK") != null);
+            try std.testing.expect(std.mem.endsWith(u8, output.written(), "{\"name\":\"Ada\"}"));
+        } else {
+            try std.testing.expect(std.mem.indexOf(u8, output.written(), "411 Length Required") != null);
+            try std.testing.expect(std.mem.indexOf(u8, output.written(), "connection: close") != null);
+        }
+    }
+
+    // QUERY is not an OpenAPI 3.1 operation. A raw route must stay excluded.
+    const doc = try zchema.openApiJson(QueryApi, a, .{});
+    try std.testing.expect(std.mem.indexOf(u8, doc, "/search") == null);
+}
+
 test "query allocation failure propagates without sending a validation response" {
     const Handlers = struct {
         fn search(called: *bool, _: zchema.Query(struct { q: []const u8 })) !u32 {

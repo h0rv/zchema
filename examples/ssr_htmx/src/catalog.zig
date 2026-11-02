@@ -25,7 +25,7 @@ pub fn search(arena: std.mem.Allocator, query: Search) ![]const Item {
 
     for (items) |item| {
         if (query.category != .all and query.category != item.category) continue;
-        if (std.ascii.indexOfIgnoreCase(item.name, query.q) == null) continue;
+        if (std.ascii.findIgnoreCase(item.name, query.q) == null) continue;
         try matches.append(arena, item);
     }
 

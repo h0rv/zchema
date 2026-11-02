@@ -39,7 +39,7 @@ pub fn build(b: *std.Build) void {
     const run_cmd = b.addRunArtifact(exe);
     run_step.dependOn(&run_cmd.step);
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| run_cmd.addArgs(args);
+    run_cmd.addPassthruArgs();
 
     // Unit tests live alongside the module sources.
     const mod_tests = b.addTest(.{
@@ -89,7 +89,7 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&example.step);
 
         const run_example = b.addRunArtifact(example);
-        if (b.args) |args| run_example.addArgs(args);
+        run_example.addPassthruArgs();
         b.step(b.fmt("run-{s}", .{name}), b.fmt("Run the {s} example", .{name}))
             .dependOn(&run_example.step);
     }

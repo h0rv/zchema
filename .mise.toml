@@ -1,5 +1,5 @@
 [tools]
-zig = "0.16.0"
+zig = "0.17.0"
 
 [tasks.fmt]
 description = "Format library and standalone example sources"

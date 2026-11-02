@@ -220,7 +220,7 @@ pub fn respondErrorBody(
     const json = try std.json.Stringify.valueAlloc(arena, error_body, .{ .emit_null_optional_fields = false });
     var o = opts;
     o.content_type = errors.error_content_type;
-    const status: std.http.Status = @enumFromInt(error_body.status);
+    const status: std.http.Status = @fromBackingInt(@intCast(error_body.status));
     try respondJsonRaw(arena, req, status, json, o);
 }
 
@@ -233,7 +233,7 @@ pub fn respondJsonRaw(
     payload: []const u8,
     opts: ResponseOptions,
 ) !void {
-    // A body-bearing request (POST/PUT/PATCH) with no content-length and no
+    // A body-bearing request (POST/PUT/PATCH/QUERY) with no content-length and no
     // chunked encoding has an unframed body that cannot be kept alive; std.http
     // would assert (unreachable) while trying to discard it. Close instead.
     const unframed_body = req.head.method.requestHasBody() and

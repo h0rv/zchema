@@ -3,7 +3,7 @@
 A standalone example combining zchema's typed JSON routes with [zt](https://github.com/lalinsky/zt)'s build-time HTML templates. One search function and the same `Search`/`Item` types serve JSON and HTML; no framework or template-schema coupling is needed.
 
 ```sh
-# Zig 0.16.0 (the repository's .mise.toml version)
+# Zig 0.17.0 (the repository's .mise.toml version)
 cd examples/ssr_htmx
 zig build test
 zig build run
@@ -26,17 +26,17 @@ The browser's `maxlength` is a convenience, not server-side validation. Zchema q
 
 ## Dependencies and runtime boundaries
 
-This package uses the repository via a relative path and pins zt to `fe662f38c5f5d493c5397342ffd9ed438af3b7c9` (0.2.0 source). Zt stays an example-only dependency; the root library and existing examples do not acquire a template compiler. The `v0.2.0` tag resolves to that exact pin. Its generated `src/pages.zig` is ignored and regenerated before both build and test. HTMX 2.0.8 is loaded from jsDelivr; the ordinary form works if that external asset is unavailable.
+This package uses the repository via a relative path and pins zt v0.2.1 to `061e59dfec493d1c43e4417e8394daf6d70ddcc3`. Zt stays an example-only dependency; the root library and existing examples do not acquire a template compiler. Zt v0.2.1 tests Zig 0.17.0 in its upstream CI. Its generated `src/pages.zig` is ignored and regenerated before both build and test. HTMX 2.0.8 is loaded from jsDelivr; the ordinary form works if that external asset is unavailable.
 
 `zig build test` includes real TCP exchanges on ephemeral loopback ports, malformed parameters, URL decoding, full pages versus fragments, routes/OpenAPI, and connection closure. The test allocator verifies per-request memory is released. No Python or browser tooling is required.
 
 Handlers receive a `http.Context` with a borrowed arena and `html` helper. `http.zig` creates and destroys the arena around each response; request data must not escape that scope.
 
-The default executable uses Zig 0.16.0's `std.process.Init.io`. Zt writes to `std.Io.Writer`; zchema works with `std.http.Server.Request`. Neither chooses an I/O backend. Both executable variants use the same `std.Io.Group.concurrent` accept loop and one request per connection. Each task owns its socket and request arena. Cancellation of the accept loop cancels and joins outstanding tasks before destroying the listener/runtime. There are no connection deadlines or admission limits; this remains a small demo. The CLI does not install a graceful OS-signal handler.
+The default executable uses Zig 0.17.0's `std.process.Init.io`. Zt writes to `std.Io.Writer`; zchema works with `std.http.Server.Request`. Neither chooses an I/O backend. Both executable variants use the same `std.Io.Group.concurrent` accept loop and one request per connection. Each task owns its socket and request arena. Cancellation of the accept loop cancels and joins outstanding tasks before destroying the listener/runtime. There are no connection deadlines or admission limits; this remains a small demo. The CLI does not install a graceful OS-signal handler.
 
 ## Optional Zio runtime
 
-[Zio](https://github.com/lalinsky/zio) v0.19.1 is a lazy, example-only dependency. Enable it to run the same HTTP handlers and templates with `Runtime.io()`:
+[Zio](https://github.com/lalinsky/zio) is a lazy, example-only dependency pinned to `57f8fa82e27c1c4cf8808efba7999332216e8658` on its Zig 0.17 `main` branch. The v0.19.x releases target Zig 0.16, so this example uses an exact commit rather than a release tag. Enable it to run the same HTTP handlers and templates with `Runtime.io()`:
 
 ```sh
 zig build test -Dzio=true # test both runtimes
@@ -47,6 +47,6 @@ From the repository root, use `mise run test-zio` and `mise run ssr-zio`. Withou
 
 The tests cover blocked socket reads and cancellation during an active handler, checking socket closure and request-arena cleanup on both runtimes. The connection owner recovers `Canceled` from concrete stream errors when `ReadFailed` or `WriteFailed` erases it. Zchema propagates these transport errors without attempting another response; ordinary application errors still produce HTTP 500.
 
-Use the repository's pinned Zig 0.16.0 toolchain. Zio v0.19.1 targets that version. The example's HTTP task group has no admission limits or connection deadlines, and the executable does not install an OS-signal handler for graceful shutdown.
+Use the repository's pinned Zig 0.17.0 toolchain. The pinned Zio commit supports its `std.Io` API. The example's HTTP task group has no admission limits or connection deadlines, and the executable does not install an OS-signal handler for graceful shutdown.
 
 For Dusty-owned request arenas and connection management, see [the Dusty + Zio example](../dusty_htmx). It reuses this catalog module and template source with zchema’s server-independent validation and OpenAPI APIs.

@@ -51,11 +51,11 @@ pub fn emptyCase(comptime status: std.http.Status) ResponseCase {
 /// });
 /// ```
 pub fn Response(comptime cases_tuple: anytype) type {
-    const fields = std.meta.fields(@TypeOf(cases_tuple));
+    const fields = @typeInfo(@TypeOf(cases_tuple)).@"struct".field_names;
     if (fields.len == 0) @compileError("zchema.Response requires at least one case");
     var arr: [fields.len]ResponseCase = undefined;
-    inline for (fields, 0..) |f, i| {
-        arr[i] = @field(cases_tuple, f.name);
+    inline for (fields, 0..) |name, i| {
+        arr[i] = @field(cases_tuple, name);
     }
     const final = arr;
     return struct {

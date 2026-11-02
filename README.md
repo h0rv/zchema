@@ -16,7 +16,7 @@ them.
 
 Schemas and validation come from
 [`h0rv/jsonschema.zig`](https://github.com/h0rv/jsonschema.zig) (Draft 2020-12).
-Requires Zig 0.16.0+.
+Requires Zig 0.17.0.
 
 ## Install
 
@@ -386,8 +386,12 @@ mise run ssr
 
 Then open http://127.0.0.1:8080. `check` covers library tests, all standalone
 example tests (including loopback HTTP), formatting, and the consumer build.
-The pinned Zig 0.16.0 is currently the latest compatible stable compiler:
-Zig 0.17.0 is released, but jsonschema v0.2.0 still uses its removed `Build.args` API.
+The toolchain is pinned to Zig 0.17.0. This release uses jsonschema 0.3.0
+at an immutable commit with its Zig package hash. The optional examples also pin
+compatible Zio, Dusty, and Zt revisions. No sibling checkout is needed.
+
+Version 0.2.0 drops Zig 0.16 support. Existing tags remain available for older
+compiler versions. Future Zig versions are supported only after testing.
 
 Additional commands:
 
