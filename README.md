@@ -27,7 +27,11 @@ zig fetch --save "git+https://github.com/h0rv/zchema.git"
 Wire the module into `build.zig`:
 
 ```zig
-const zchema = b.dependency("zchema", .{ .target = target, .optimize = optimize });
+const zchema = b.dependency("zchema", .{
+    .target = target,
+    .optimize = optimize,
+});
+
 exe.root_module.addImport("zchema", zchema.module("zchema"));
 ```
 
@@ -58,6 +62,7 @@ becomes:
 ```zig
 const input = z.jsonBody(Echo, arena, &req, .{}) catch |err|
     return z.respondError(arena, &req, err, .{});
+
 try z.respondJson(Greeting, arena, &req, .ok, .{ .message = input.name }, .{});
 ```
 
@@ -94,11 +99,19 @@ fn createUser(store: *Store, body: z.Body(CreateUser)) !z.Created(User) {
     return .{ .value = try store.create(body.value.name) };
 }
 
-fn listUsers(store: *Store, page: z.Query(struct { limit: u32 = 50 })) ![]const User {
+const Page = struct {
+    limit: u32 = 50,
+};
+
+const UserPath = struct {
+    id: u32,
+};
+
+fn listUsers(store: *Store, page: z.Query(Page)) ![]const User {
     return store.list(page.value.limit);
 }
 
-fn getUser(store: *Store, path: z.Path(struct { id: u32 })) !?User {
+fn getUser(store: *Store, path: z.Path(UserPath)) !?User {
     return store.find(path.value.id); // null -> 404
 }
 ```
@@ -131,25 +144,36 @@ zchema owns the contracts, not the server. You run `std.http.Server` and call
 in control of the loop, threading, and socket lifecycle:
 
 ```zig
-const Server = z.App(Api, .{ .openapi = .{ .title = "Users API", .version = "1.0.0" } });
+const Server = z.App(Api, .{
+    .openapi = .{
+        .title = "Users API",
+        .version = "1.0.0",
+    },
+});
 
 fn serveConnection(io: std.Io, gpa: std.mem.Allocator, ctx: *Ctx, stream: std.Io.net.Stream) void {
     defer stream.close(io);
+
     var recv: [16 * 1024]u8 = undefined;
     var send: [16 * 1024]u8 = undefined;
     var sr = stream.reader(io, &recv);
     var sw = stream.writer(io, &send);
     var http = std.http.Server.init(&sr.interface, &sw.interface);
+
     // One arena per connection, reset (not freed) between requests so keep-alive
     // requests reuse the same memory instead of allocating each time.
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
+
     while (true) {
         var req = http.receiveHead() catch return;
         defer _ = arena_state.reset(.retain_capacity);
         const arena = arena_state.allocator();
+
         if (Server.handle(ctx, arena, &req, .{}) catch return) continue;
-        z.respondErrorBody(arena, &req, z.errorBody(.not_found, "No matching route.", &.{}), .{}) catch return;
+
+        const not_found = z.errorBody(.not_found, "No matching route.", &.{});
+        z.respondErrorBody(arena, &req, not_found, .{}) catch return;
     }
 }
 ```
@@ -176,7 +200,13 @@ the model, because models are shared across endpoints:
 const CreateUser = struct {
     name: []const u8,
 
-    pub const jsonschema = .{ .fields = .{ .name = .{ .minLength = 1 } } };
+    pub const jsonschema = .{
+        .fields = .{
+            .name = .{
+                .minLength = 1,
+            },
+        },
+    };
 };
 ```
 
@@ -185,7 +215,11 @@ const CreateUser = struct {
 Any registered `Api` generates an OpenAPI 3.1 document:
 
 ```zig
-const doc = try z.openApiJson(Api, allocator, .{ .title = "Users API", .version = "1.0.0" });
+const doc = try z.openApiJson(Api, allocator, .{
+    .title = "Users API",
+    .version = "1.0.0",
+});
+
 // or stream it: try z.writeOpenApi(Api, writer, .{});
 ```
 
@@ -201,15 +235,33 @@ metadata through `OpenApiOptions`:
 
 ```zig
 const Api = z.Api(.{
-    z.get("/users/{id}", getUser).with(.{ .summary = "Fetch a user", .tags = &.{"users"} }),
+    z.get("/users/{id}", getUser).with(.{
+        .summary = "Fetch a user",
+        .tags = &.{"users"},
+    }),
 });
 
 const doc = try z.openApiJson(Api, gpa, .{
     .title = "Users API",
     .version = "1.0.0",
-    .servers = &.{.{ .url = "https://api.example.com" }},
-    .tags = &.{.{ .name = "users", .description = "User operations" }},
-    .security_schemes = &.{.{ .http = .{ .name = "BearerAuth", .scheme = "bearer", .bearer_format = "JWT" } }},
+    .servers = &.{
+        .{ .url = "https://api.example.com" },
+    },
+    .tags = &.{
+        .{
+            .name = "users",
+            .description = "User operations",
+        },
+    },
+    .security_schemes = &.{
+        .{
+            .http = .{
+                .name = "BearerAuth",
+                .scheme = "bearer",
+                .bearer_format = "JWT",
+            },
+        },
+    },
     .security = &.{"BearerAuth"},
 });
 ```
@@ -226,7 +278,10 @@ spec, client codegen, a route listing). See `examples/introspect/src/main.zig`.
 
 ```zig
 const Server = z.App(Api, .{
-    .openapi = .{ .title = "Users API", .version = "1.0.0" },
+    .openapi = .{
+        .title = "Users API",
+        .version = "1.0.0",
+    },
 });
 
 // in the request loop:
@@ -265,7 +320,9 @@ z.App(Api, .{
             .theme = "moon",
             .extra_json = "\"showSidebar\":false", // anything Scalar supports
         },
-        .assets = .{ .script = "https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.25.0" },
+        .assets = .{
+            .script = "https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.25.0",
+        },
     },
 });
 ```
@@ -296,6 +353,7 @@ For decoded query parameters, pass any lookup with `get(name)` returning
 
 ```zig
 var fields: std.ArrayListUnmanaged(z.FieldError) = .empty;
+
 const search = try z.decodeQuery(Search, req.arena, req.query, &fields, .{
     .validate = true,
 });
@@ -315,15 +373,27 @@ own framework's router and just serve the generated document:
 const ApiSpec = z.Spec(.{
     z.endpoint(.POST, "/users", .{
         .body = CreateUser,
-        .responses = .{ z.case(.created, User), z.case(.bad_request, z.ErrorBody) },
+        .responses = .{
+            z.case(.created, User),
+            z.case(.bad_request, z.ErrorBody),
+        },
     }),
     z.endpoint(.GET, "/users/{id}", .{
-        .path = struct { id: u32 },
-        .responses = .{ z.case(.ok, User), z.case(.not_found, z.ErrorBody) },
+        .path = struct {
+            id: u32,
+        },
+        .responses = .{
+            z.case(.ok, User),
+            z.case(.not_found, z.ErrorBody),
+        },
     }),
 });
 
-const doc = try z.openApiJson(ApiSpec, gpa, .{ .title = "Users API", .version = "1.0.0" });
+const doc = try z.openApiJson(ApiSpec, gpa, .{
+    .title = "Users API",
+    .version = "1.0.0",
+});
+
 // serve `doc` from your server at /openapi.json
 ```
 
@@ -342,7 +412,12 @@ WebSockets pass straight through to the stdlib:
 ```zig
 try req.respond(bytes, .{
     .status = .ok,
-    .extra_headers = &.{.{ .name = "content-type", .value = "application/octet-stream" }},
+    .extra_headers = &.{
+        .{
+            .name = "content-type",
+            .value = "application/octet-stream",
+        },
+    },
 });
 ```
 
